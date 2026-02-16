@@ -1,0 +1,840 @@
+---
+title: "Pooling"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(bayesrules)
+library(brms)
+library(tidybayes)
+library(glmmTMB)
+library(patchwork)
+library(ggtext)
+library(ggh4x)
+library(scales)
+
+set.seed(1234)
+BAYES_SEED <- 1234
+```
+
+## Data
+
+```{r}
+data(cherry_blossom_sample, package = "bayesrules")
+
+running <- cherry_blossom_sample |> 
+    dplyr::select(runner, age, net) |> 
+    dplyr::mutate(
+        runner_nice = glue::glue("Runner {runner}"),
+        runner_nice = forcats::fct_inorder(runner_nice)
+    )
+```
+
+There is variation _across_ groups and _within_ groups.
+
+```{r}
+running |> 
+    ggplot(aes(x = runner, y = net)) +
+    geom_boxplot() +
+    labs(x = "Runner number", y = "Race time") +
+    theme_minimal()
+```
+
+
+```{r}
+running |> 
+    ggplot(aes(x = age, y = net)) +
+        geom_point(size = 1) +
+        geom_smooth(method = "lm", se = FALSE, size = 1, color = "red") +
+        facet_wrap(vars(runner_nice), ncol = 4) +
+        labs(x = "Age", y = "Race time") +
+        theme(panel.grid.minor = element_blank())
+```
+
+## Complete Pooling
+
+Lump all the observations together into one pool of information and treat each observation as independent.
+
+
+```{r}
+running |> 
+    ggplot(aes(x = age, y = net)) +
+        geom_point() +
+        geom_smooth(method = "lm", se = FALSE, color = "red") +
+        labs(x = "Age", y = "Race time") +
+        theme_minimal()
+```
+
+$$
+\begin{aligned}
+\text { Race time }_i & \sim \mathcal{N}\left(\mu_i, \sigma\right) \\
+\mu_i & =\beta_0+\beta_1 \text { Age }_i \\
+\beta_0 & \sim \mathcal{N}(0,35) \\
+\beta_1 & \sim \mathcal{N}(0,2.5) \\
+\sigma & \sim \text { Exponential }(1 / 10)
+\end{aligned}
+$$
+
+
+```{r}
+priors <- c(
+    prior(normal(0, 35), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(exponential(0.1), class = sigma)
+    )
+
+model_complete_pooling_brms <- brms::brm(
+    bf(net ~ age),
+    data = running,
+    family = gaussian(),
+    prior = priors,
+    chains = 4,
+    cores = 4,
+    iter = 4000,
+    seed = BAYES_SEED,
+    backend = "rstan",
+    refresh = 0,
+    file = "Models/model_complete_pooling_brms"
+)
+```
+
+```{r}
+broom.mixed::tidy(model_complete_pooling_brms, effects = "fixed", conf.level = 0.8)
+```
+
+```{r}
+model_complete_pooling_lm <- lm(net ~ age, data = running)
+print(summary(model_complete_pooling_lm))
+```
+
+```{r}
+model_complete_pooling_tmb <- glmmTMB(
+    net ~ age, data = running, family = gaussian(), REML = FALSE)
+print(summary(model_complete_pooling_tmb))
+```
+
+```{r}
+m_pool_complete <- model_complete_pooling_brms |> 
+    broom.mixed::tidy(effects = "fixed", conf.level = 0.8) |> 
+    dplyr::mutate(term = janitor::make_clean_names(term)) |> 
+    split(~term)
+```
+
+$\beta_1$ is 0.263 but with an 80% credible interval of -0.322 to 0.852.  We would likely expect most people to get slower over time though and $beta_1$ to be positive i.e., times getting longer with age.
+
+
+```{r}
+model_complete_pooling_brms |> 
+    add_epred_draws(
+        newdata = tibble(age = seq(min(running$age), max(running$age), length.out = 100))
+    ) |> 
+    ggplot(aes(x = age, y = .epred)) +
+        geom_smooth(data = running,
+                    aes(y = net, group = runner), method = "lm", se = FALSE,
+                    color = "grey60", size = 0.5) +
+        stat_lineribbon(alpha = 0.25, fill = "lightblue", color = "blue") +
+        labs(x = "Age", y = "Race time")
+```
+
+Complete pooling
+
+```{mermaid}
+graph TD
+    Population[Population]
+    Population --> y1((y1))
+    Population --> y2((y2))
+    Population --> y3((y3))
+    Population --> y4((y4))
+    Population -.-> dots[...]
+    Population --> yn((yn))
+
+    style dots fill:none,stroke:none
+```
+
+## No Pooling
+
+We can keep _complete_ information about each group by not lumping anything together.  We treat each population for that group.
+
+No pooling
+
+```{mermaid}
+graph TB
+    R1[Group 1]
+    R2[Group 2]
+    dots1[...]
+    Rn[Group n]
+    
+    R1 --> y11((y11))
+    R1 --> y21((y21))
+    R1 --> y31((y31))
+    
+    R2 --> y12((y12))
+    R2 --> y22((y22))
+    R2 --> y32((y32))
+    
+    dots1 --> dots2[...]
+    
+    Rn --> y1n((y1n))
+    Rn --> y2n((y2n))
+    Rn --> y3n((y3n))
+    
+    style dots1 fill:none,stroke:none
+    style dots2 fill:none,stroke:none
+```
+
+This is just running the model for each group j.
+
+$$
+\begin{aligned}
+\text { Race time }_{i_j} & \sim \mathcal{N}\left(\mu_{i_j}, \sigma\right) \\
+\mu_{i_j} & =\beta_{0_j}+\beta_{1_j} \text { Age }_{i_j} \\
+\beta_0 & \sim \mathcal{N}(0,35) \\
+\beta_1 & \sim \mathcal{N}(0,2.5) \\
+\sigma & \sim \text { Exponential }(1 / 10)
+\end{aligned}
+$$
+
+
+```{r}
+# nested structure where each row represents one runner, and the data column
+# contains the subset of observations for that specific runner
+# nested data frame
+no_pooling <- tibble(
+    runner = levels(running$runner)
+) |> 
+    dplyr::mutate(data = map(runner, ~filter(running, runner == .x))) |> 
+    dplyr::mutate(model = map(data, ~update(model_complete_pooling_brms, newdata = .x)))
+```
+
+
+```{r}
+no_pooling_results <- no_pooling |> 
+    dplyr::mutate(tidied = map(model, ~tidy(., effects = "fixed"))) |> 
+    dplyr::select(-data, -model) |> 
+    tidyr::unnest(tidied) |> 
+    dplyr::filter(term %in% c("(Intercept)", "age")) |> 
+    dplyr::select(runner, term, estimate) |> 
+    tidyr::pivot_wider(names_from = "term", values_from = "estimate") |> 
+    dplyr::rename(beta0 = `(Intercept)`, beta1 = age)
+```
+
+
+```{r}
+runner_ages <- running |> 
+    dplyr::group_by(runner) |> 
+    dplyr::summarise(age_min = min(age), age_max = max(age)) |> 
+    dplyr::mutate(
+        age_range = map2(age_min, age_max, ~tibble(age = seq(.x, .y, length.out = 100)))
+    ) |> 
+    dplyr::select(runner, age_range)
+
+no_pooling_epreds <- no_pooling |> 
+  left_join(runner_ages, by = "runner") |> 
+  mutate(epred = map2(model, age_range, ~epred_draws(.x, .y, ndraws = 100)))
+
+no_pooling_plots <- no_pooling_epreds |> 
+  mutate(plot = map2(epred, data, ~{
+    ggplot(.x, aes(x = age, y = .epred)) +
+      geom_line(aes(group = .draw), size = 0.25, color = "red", alpha = 0.5) +
+      geom_point(data = .y, aes(y = net), size = 0.75, color = "grey") +
+      labs(x = NULL, y = NULL) +
+      coord_cartesian(xlim = c(50, 64), ylim = c(60, 132)) +
+      theme(panel.grid.minor = element_blank()) +
+      facet_wrap(vars(runner_nice))
+  }))
+
+patchwork::wrap_plots(no_pooling_plots$plot, ncol = 4)
+```
+
+These individual models can't "communicate" with one another and are too isolated and unwieldy.
+
+## Partial Pooling (with Hierarchical Models)
+
+Does the data have a _natural_ hierarchical structure.
+
+There is variation within each group and variation across or between the observations in the group.  So we have:
+
+1. **Within-group variability:** The degree of variability among multiple observations within each group can be interesting on its own.
+1. **Between-group variability:** Hierarchical data also allows us to examine the variability from group to group.
+
+Partial pooling with hierarchical models
+
+```{mermaid}
+graph TB
+    Pop[Population]
+    
+    Pop --> R1[Group 1]
+    Pop --> R2[Group 2]
+    Pop --> dots1[...]
+    Pop --> Rn[Group n]
+    
+    R1 --> y11((y11))
+    R1 --> y21((y21))
+    R1 --> y31((y31))
+    
+    R2 --> y12((y12))
+    R2 --> y22((y22))
+    R2 --> y32((y32))
+    
+    dots1 --> dots2[...]
+    
+    Rn --> y1n((y1n))
+    Rn --> y2n((y2n))
+    Rn --> y3n((y3n))
+    
+    style dots1 fill:none,stroke:none
+    style dots2 fill:none,stroke:none
+```
+
+
+```{r}
+priors <- c(
+    prior(normal(0, 35), class = Intercept),
+    prior(normal(0, 2.5), class = b),
+    prior(exponential(0.1), class = sigma),
+    prior(student_t(3, 0, 15), class = sd, lb = 0)
+)
+
+model_partial_pooling_brms <- brm(
+    bf(net ~ age + (1 + age | runner)),
+    data = running,
+    family = gaussian(),
+    prior = priors,
+    chains = 4,
+    cores = 4,
+    iter = 8000,
+    threads = threading(2),
+    seed = 87,
+    backend = "rstan",
+    refresh = 0,
+    file = "Models/partial-pooling-brms"
+)
+```
+
+
+```{r}
+broom.mixed::tidy(model_partial_pooling_brms)
+```
+
+
+```{r}
+model_partial_pooling_tmb <- glmmTMB(
+    net ~ age + (1 + age | runner),
+    data = running,
+    family = gaussian(),
+    REML = FALSE)
+
+print(summary(model_partial_pooling_tmb))
+```
+
+## Hierarchical model with varying intercepts
+
+### Layer 1: Variability within groups (runners)
+
+Each runner's race time varies around their mean $(\mu_{ij})$ with some within-runner variability $\sigma_y$.
+
+$$
+\begin{aligned}
+& Y_{i_j} \sim \mathcal{N}\left(\mu_{i_j}, \sigma_y\right) \\
+& \mu_{i_j}=\beta_{0_j}+\beta_1 X_{i_j}
+\end{aligned}
+$$
+
+- $\beta_{0_j}$ is the runner-specific intercept for group _j_.  It is group-specific.
+- $\beta_1$ is the global coefficient for the effect of age on race time.  Global and shared across groups.
+- $\sigma_y$ is the within-runner variability.  Measures the strength of the relationship between and individual runner's age and their race time.  It is also global and shared across all groups.
+
+### Layer 2: Variability between groups (runners)
+
+With only random intercepts, we just model $\beta_0$ here.
+
+$$
+\beta_{0_j} \sim \mathcal{N}\left(\beta_0, \sigma_0 \right)
+$$
+
+- $\beta_0$ is the global average intercept across all groups
+- $\sigma_0$ is the between-group variability around that average.
+
+### Layer 3: Global priors
+
+- $\beta_0$ average race time for all runners
+- $\beta_1$ effect of age on race time for all runners
+- $\sigma_y$ within-runner variability of race time
+- $\sigma_0$ between-runner variability of average group race time
+
+$$
+\begin{aligned}
+Y_{i_j} & \sim \mathcal{N}\left(\mu_{i_j}, \sigma_y\right) \\
+\mu_{i_j} & =\beta_{0_j}+\beta_1 X_{i_j} \\
+\beta_{0_j} & \sim \mathcal{N}\left(\beta_0, \sigma_0\right) \\
+\beta_0 & \sim \text { Some prior } \\
+\beta_1 & \sim \text { Some prior } \\
+\sigma_y & \sim \text { Some prior } \\
+\sigma_0 & \sim \text { Some prior }
+\end{aligned}
+$$
+
+We can also think about the between-runner variation as a series of offsets from the global mean.
+
+$$
+\beta_{0_j} = \beta_0 + b_{0_j}
+$$
+
+These offsets come from a normal distribution with some standard deviation $\sigma_0$.
+
+$$
+b_{0_j} \sim \mathcal{N}\left(0, \sigma_0 \right)
+$$
+
+$$
+\begin{aligned}
+Y_{i_j} & \sim \mathcal{N}\left(\mu_{i_j}, \sigma_y\right) \\
+\mu_{i_j} & = \left(\beta_{0} + b_{0_j} \right) +\beta_1 X_{i_j} \\
+b_{0_j} & \sim \mathcal{N}\left(0, \sigma_0\right) \\
+\beta_0 & \sim \mathcal{N} \left(100, 10 \right) \\
+\beta_1 & \sim \mathcal{N} \left(2.5, 1 \right) \\
+\sigma_y & \sim \text{Exponential} \left(1/10 \right) \\
+\sigma_0 & \sim \text{Exponential} \left(1/10 \right)
+\end{aligned}
+$$
+
+```{r}
+p1 <- ggplot() +
+    stat_function(fun = ~dnorm(., 100, 10),
+                  geom = "area", fill = "lightblue") +
+    xlim(c(60, 140)) +
+    labs(x = "**β<sub>0</sub>**<br>Global average runner race time") +
+    theme_minimal() +
+    theme(axis.title.x = element_markdown(), axis.text.y = element_blank(), 
+        axis.title.y = element_blank(), axis.ticks.y = element_blank(),
+        panel.grid = element_blank())
+
+p2 <- ggplot() +
+    stat_function(fun = ~dnorm(., 2.5, 1),
+                  geom = "area", fill = "orange") +
+    xlim(c(-1, 6)) +
+    labs(x = "**β<sub>1</sub>**<br>Global effect of age on race time") +
+    theme_minimal() +
+    theme(axis.title.x = element_markdown(), axis.text.y = element_blank(), 
+        axis.title.y = element_blank(), axis.ticks.y = element_blank(),
+        panel.grid = element_blank())
+
+p3 <- ggplot() +
+    stat_function(fun = ~dexp(., 1/10),
+                  geom = "area", fill = "darkred") +
+    xlim(c(0, 60)) +
+    labs(x = "**σ<sub>y</sub>** and **σ<sub>0</sub>**<br>Variation *within* individuals' race times<br>and *between* average runner race times") +
+    theme_minimal() +
+    theme(axis.title.x = element_markdown(), axis.text.y = element_blank(), 
+        axis.title.y = element_blank(), axis.ticks.y = element_blank(),
+        panel.grid = element_blank())
+
+p1 | p2 | p3
+```
+
+**Prior Simulation**
+
+class = b (Population-level effects)
+class = sigma (residual standard deviation)
+class = sd (standard deviation of group-level (random) effects)
+
+```{r}
+running <- running |> 
+    dplyr::mutate(age_c = age - mean(age))
+```
+
+```{r}
+priors <- c(
+    prior(normal(100, 10), class = Intercept),
+    prior(normal(2.5, 1), class = b),
+    prior(exponential(0.1), class = sigma),
+    prior(exponential(0.1), class = sd))
+
+model_running1_brms_prior <- brm(
+    net ~ age_c + (1 | runner),
+    data = running,
+    family = gaussian(),
+    prior = priors,
+    sample_prior = "only",
+    chains = 4,
+    cores = 4,
+    iter = 4000,
+    threads = threading(2),
+    seed = 1429,
+    backend = "rstan",
+    refresh = 0,
+    file = "Models/running1-brms-prior"
+)
+```
+
+
+```{r}
+p1 <- running |> 
+    tidybayes::add_predicted_draws(model_running1_brms_prior, ndraws = 100) |> 
+    ggplot(aes(x = .prediction, group = .draw)) +
+        geom_density(size = 0.25, color = "darkred") +
+        labs(x = "Predicted race time", y = "Density") +
+        coord_cartesian(xlim = c(-100, 300)) +
+        theme_minimal()
+
+p2 <- running |> 
+    tidybayes::add_linpred_draws(model_running1_brms_prior, ndraws = 9, seed = 888) |> 
+    ggplot(aes(x = age, y = net)) +
+        geom_line(aes(y = .linpred, group = paste(runner, .draw)),
+        color = "lightblue", size = 0.25) +
+        labs(x = "Age", y = "Race time") +
+        coord_cartesian(ylim = c(50, 130)) +
+        facet_wrap(vars(.draw)) +
+        theme_minimal()
+
+(p1 | p2) + plot_layout(width = c(0.3, 0.7))
+```
+
+**Posterior simulation**
+
+
+```{r}
+priors <- c(
+    prior(normal(100, 10), class = Intercept),
+    prior(normal(2.5, 1), class = b),
+    prior(exponential(0.1), class = sigma),
+    prior(exponential(0.1), class = sd))
+
+model_running1_brms <- brm(
+    net ~ age_c + (1 | runner),
+    data = running,
+    family = gaussian(),
+    prior = priors,
+    chains = 4,
+    cores = 4,
+    iter = 4000,
+    threads = threading(2),
+    seed = 1443,
+    backend = "rstan",
+    refresh = 0,
+    file = "Models/running1-brms"
+)
+```
+
+```{r}
+model_running1_brms
+```
+
+
+```{r}
+model_running1_brms |> 
+    broom.mixed::tidy(effects = c("fixed"), conf.level = 0.8) |> 
+    dplyr::select(-component)
+```
+
+
+```{r}
+model_partial_pooling_tmb <- glmmTMB(
+    net ~ age_c + (1 | runner),
+    data = running,
+    family = gaussian(),
+    REML = TRUE)
+
+print(summary(model_partial_pooling_tmb))
+```
+
+
+```{r}
+model_running1_brms |> 
+    tidybayes::linpred_draws(running, ndraws = 200, re_formula = NA) |> 
+    ggplot(aes(x = age, y = net)) +
+        tidybayes::stat_lineribbon(
+            aes(y = .linpred), fill = "lightblue", color = "blue", alpha = 0.2
+        ) +
+    labs(x = "Age", y = "Race time")
+```
+
+**Group-specific analysis**
+
+$$
+\beta_0 + b_{0_j}
+$$
+
+
+```{r}
+global_B0 <- model_running1_brms |> 
+    broom.mixed::tidy(effects = c("fixed"), conf.level = 0.8) |> 
+    dplyr::filter(term == "(Intercept)")
+
+running1_runner_offsets <- model_running1_brms |> 
+    tidybayes::spread_draws(b_Intercept, r_runner[runner,]) |> 
+    dplyr::mutate(runner_intercept = b_Intercept + r_runner) |> 
+    ungroup() |> 
+    dplyr::mutate(runner = fct_reorder(factor(runner), runner_intercept, .fun = mean))
+
+running1_runner_offsets |> 
+  ggplot(aes(x = runner_intercept, y = runner)) +
+    annotate(geom = "rect", ymin = -Inf, ymax = Inf,
+            xmin = global_B0$conf.low, xmax = global_B0$conf.high,
+            fill = "orange", alpha = 0.4) +
+    geom_vline(xintercept = global_B0$estimate, color = "orange") +
+    stat_pointinterval(color = "darkred") +
+    theme_minimal()
+```
+
+**Within- and between-runner variability**
+
+
+```{r}
+model_running1_brms |> 
+    broom.mixed::tidy(effects = c("ran_pars"), conf.level = 0.8) |> 
+    dplyr::select(-component)
+```
+
+- $\sigma_0$ is `sd_(Intercept)` between-runner variability
+- $\sigma_y$ is `sd_Observation` within-runner variability
+
+Here, there's more variation between runners than within individual runners.
+
+
+```{r}
+model_running1_brms |> 
+    broom.mixed::tidy(effects = c("ran_pars"), conf.int = FALSE) |> 
+    dplyr::select(-component, -effect, -std.error) |> 
+    dplyr::mutate(sigma_2 = estimate^2) |> 
+    dplyr::mutate(props = sigma_2 / sum(sigma_2))
+```
+
+Intraclass Correlation Coefficient (ICC)
+
+The ICC quantifies the extent of clustering in a dataset.  The more extensive the impact of clustering, the more variance between clusters, the larger the ICC.  We can interpret the ICC as:
+
+1. the proportion of variance in the outcome that is attributable to groups or 
+1. the expected correlation between the outcome from randomly selected observations from a randomly selected group
+
+$$
+\rho = \frac{\tau^2}{\tau^2 + \sigma^2}
+$$
+
+```{r}
+performance::icc(model_running1_brms, by_group = TRUE)
+```
+
+We see the ICC of approximately 0.87 which signals strong within-group similarity.
+
+$$
+\hat{\mu}_j = Z \times \bar{y}_j + (1-Z) \times \hat{\mu}
+$$
+
+where $\bar{y}_j $ is the mean of age-adjute net times for group $j$.
+
+```{r}
+# Step 1: Extract model parameters
+mu_hat <- fixef(model_partial_pooling_tmb)$cond["(Intercept)"]  # β₀ ≈ 90.72324
+beta_age <- fixef(model_partial_pooling_tmb)$cond["age_c"]      # β₁ ≈ 1.243641
+
+# Step 2: Calculate k (shrinkage factor)
+sigma_sq <- 26.89   # Residual
+tau_sq <- 175.50    # runner
+k <- sigma_sq / tau_sq
+
+# Step 3: Manual partial pooling calculation
+manual_estimates <- running |> 
+    drop_na() |> 
+    mutate(
+        # Remove age effect to get "residual intercepts"
+        net_adjusted = net - beta_age * age_c
+    ) |> 
+    group_by(runner) |> 
+    summarise(
+        avg_net_adjusted = mean(net_adjusted),  # ȳⱼ (group mean of residuals)
+        count = n(),
+        Z = count / (count + k),                # shrinkage weight
+        mu_j_manual = Z * avg_net_adjusted + (1 - Z) * mu_hat  # partial pooling!
+    )
+
+# Step 4: Get model predictions for comparison
+mu_j_model <- coef(model_partial_pooling_tmb)$cond$runner[, "(Intercept)"]
+
+# Step 5: Compare
+manual_estimates |> 
+    mutate(
+        mu_j_model = mu_j_model,
+        difference = mu_j_manual - mu_j_model
+    ) |> 
+    select(runner, mu_j_manual, mu_j_model, difference) |> 
+    print(n = 36)
+```
+
+
+
+```{r}
+# Get population intercept
+mu_hat <- fixef(model_partial_pooling_tmb)$cond["(Intercept)"]
+
+# Get age coefficient
+beta_age <- fixef(model_partial_pooling_tmb)$cond["age_c"]
+
+k <- 27.2 / 182
+
+running %>% 
+    group_by(runner) %>%
+    drop_na() %>% 
+    summarise(
+        # Calculate age-adjusted mean
+        avg_net_adjusted = mean(net - beta_age * age_c),
+        count = n(),
+        Z = count / (count + k),
+        mu_j = Z * avg_net_adjusted + (1 - Z) * mu_hat
+    )
+
+```
+
+## Hierarchical model with varying intercepts & slopes
+
+
+```{r}
+p1 <- running |> 
+    ggplot(aes(x = age, y = net, group = runner, colour = runner)) +
+        geom_smooth(method = "lm", se = FALSE, size = 0.5) +
+        labs(x = "Age", y = "Race time") +
+        theme_minimal() +
+        theme(legend.position = "none")
+
+p1
+```
+
+Each runner $j$ gets their own slope $\beta_1$.
+
+$$
+\begin{aligned}
+& Y_{i_j} \sim \mathcal{N}\left(\mu_{i_j}, \sigma_y\right) \\
+& \mu_{i_j}=\beta_{0_j}+\beta_{1_j} X_{i_j}
+\end{aligned}
+$$
+
+$$
+\begin{aligned}
+& \beta_{0_j} \sim \mathcal{N}\left(\beta_0, \sigma_0\right) \\
+& \beta_{1_j} \sim \mathcal{N}\left(\beta_1, \sigma_1\right)
+\end{aligned}
+$$
+
+$\beta_{0_j}$ and $\beta_{1_j}$ are correlated and move together with each group though.  We have to consider them together.
+
+$$
+\binom{\beta_{0_j}}{\beta_{1_j}} \sim \mathcal{N}\left(\binom{\beta_0}{\beta_1}, \Sigma\right)
+$$
+
+$$
+\Sigma=\left(\begin{array}{cc}
+\operatorname{Var}_{\beta_0} & \operatorname{Cov}_{\beta_0, \beta_1} \\
+\operatorname{Cov}_{\beta_0, \beta_1} & \operatorname{Var}_{\beta_1}
+\end{array}\right)
+$$
+
+$$
+\Sigma=\left(\begin{array}{cc}
+\sigma_0^2 & \rho_{0,1} \sigma_0 \sigma_1 \\
+\rho_{0,1} \sigma_1 \sigma_0 & \sigma_1^2
+\end{array}\right)
+$$
+
+
+```{r}
+withr::with_seed(123, {
+  rho_plots <- tibble(rho = c(-0.99, 0, 0.99)) |> 
+    mutate(title = glue::glue("ρ = {rho}"),
+           subtitle = c("Strong negative correlation\nbetween slope and intercept",
+                        "No correlation\nbetween slope and intercept",
+                        "Strong positive correlation\nbetween slope and intercept")) |> 
+    mutate(Sigma = map(rho, ~matrix(c(1, .x, .x, 1), 2, 2))) |> 
+    mutate(data = map(Sigma, ~{
+      MASS::mvrnorm(n = 100, mu = c(2, 3), Sigma = .x) |> 
+        as_tibble() |> 
+        rename(b0 = V1, b1 = V2)
+    })) |> 
+    mutate(plot = pmap(list(data, title, subtitle), ~{
+      ggplot(..1) +
+        geom_abline(aes(intercept = b0, slope = b1, color = b0),
+                    size = 0.3) +
+        scale_color_viridis_c(option = "rocket", begin = 0.1, end = 0.85,
+                              limits = c(-1, 5)) +
+        labs(title = ..2, subtitle = ..3, color = "β<sub>0</sub>") +
+        lims(x = c(0, 3), y = c(0, 10)) +
+        coord_axes_inside() +
+        theme(axis.line = element_line(),
+              legend.title = element_markdown())
+    }))
+})
+
+wrap_plots(rho_plots$plot) + 
+  plot_layout(guides = "collect")
+```
+
+$$
+\begin{aligned}
+Y_{i_j} & \sim \mathcal{N}\left(\mu_{i_j}, \sigma_y\right) \\
+\mu_{i_j} & =\beta_{0_j}+\beta_{1_j} X_{i_j} \\
+\binom{\beta_{0_j}}{\beta_{1_j}} & \sim \mathcal{N}\left(\binom{\beta_0}{\beta_1},\left(\begin{array}{cc}
+\sigma_0^2 & \rho_{0,1} \sigma_0 \sigma_1 \\
+\ldots & \sigma_1^2
+\end{array}\right)\right)
+\end{aligned}
+$$
+
+or equivalently...
+
+$$
+\begin{aligned}
+Y_{i_j} & \sim \mathcal{N}\left(\mu_{i_j}, \sigma_y\right) \\
+\mu_{i_j} & =\left(\beta_{0 c}+b_{0_j}\right)+\left(\beta_1+b_{1_j}\right) X_{i_j} \\
+\binom{b_{0_j}}{b_{1_j}} & \sim \mathcal{N}\left(\binom{0}{0},\left(\begin{array}{cc}
+\sigma_0^2 & \rho_{0,1} \sigma_0 \sigma_1 \\
+\rho_{0,1} \sigma_1 \sigma_0 & \sigma_1^2
+\end{array}\right)\right)
+\end{aligned}
+$$
+
+
+```{r}
+brms::get_prior(
+    net ~ age_c + (1 + age_c | runner),
+    data = running,
+    family = gaussian()
+)
+```
+
+
+```{r}
+priors <- c(
+    prior(normal(100, 10), class = Intercept),
+    prior(normal(2.5, 1), class = b),
+    prior(exponential(0.1), class = sigma),
+    prior(exponential(0.1), class = sd),
+    prior(lkj(1), class = cor)
+)
+
+model_running2_brms <- brm(
+    net ~ age_c + (1 + age_c | runner),
+    data = running,
+    family = gaussian(),
+    prior = priors,
+    chains = 4,
+    cores = 4,
+    iter = 4000,
+    threads = threading(2),
+    seed = 1936,
+    backend = "rstan",
+    refresh = 0,
+    control = list(adapt_delta = 0.9),
+    file = "Models/running2-brms"
+)
+```
+
+
+```{r}
+get_variables(model_running2_brms)
+```
+
+
+```{r}
+model_running2_brms |> 
+    broom.mixed::tidy(effects = c("fixed"), conf.level = 0.8)
+```

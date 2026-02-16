@@ -1,0 +1,9 @@
+.venv/
+rv/
+__pycache__/
+.Rproj.user/
+.Rhistory
+.RData
+.DS_Store
+*.Rproj
+Models/
