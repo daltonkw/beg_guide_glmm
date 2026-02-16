@@ -1,8 +1,14 @@
-# Project Prompt: Generalized Linear Mixed Models for Actuarial Pricing
+# Generalized Linear Mixed Models for Non-Life Insurance Pricing
 
 ## Executive Summary
 
-This self-directed project develops mastery in Generalized Linear Mixed Models (GLMMs) for non-life insurance pricing. You will progress from classical GLM and credibility foundations through advanced GLMM applications, with emphasis on practical R implementation. The project bridges actuarial theory, statistical rigor, and regulatory considerations, enabling you to apply these models confidently to real-world casualty pricing problems.
+This self-directed project develops mastery in Generalized Linear Mixed Models (GLMMs) for non-life (casualty/property) insurance pricing. The conceptual throughline is that **credibility theory, mixed models, and Bayesian hierarchical models are the same idea** --- partial pooling of sparse group-level data toward a collective estimate --- implemented with increasing statistical rigor. The project takes a credentialed actuary (FCAS-level) with graduate-level statistical training from GLM and credibility foundations through full competence with GLMMs, including both frequentist and Bayesian approaches.
+
+### Guiding Principle
+
+> "Credibility theory is partial pooling. GLMMs automate partial pooling via likelihood-based estimation. Bayesian GLMMs make the credibility prior explicit. They are all the same idea --- just implemented differently."
+
+This equivalence (BLUP = Buhlmann credibility = Bayesian posterior mean, under appropriate conditions) is introduced early and reinforced throughout every module.
 
 ---
 
@@ -10,782 +16,486 @@ This self-directed project develops mastery in Generalized Linear Mixed Models (
 
 By completion, you will:
 
-1. **Master foundational theory:** Deeply understand GLMs, credibility theory, and their interplay in insurance rating—with ability to explain *why* these approaches work and *when* to use each.
+1. **Explain the credibility-mixed-model equivalence** rigorously to a peer, including where it holds exactly (Gaussian LMM) and where it is approximate (GLMMs with nonlinear link functions).
 
-2. **Implement production-ready GLMMs:** Write clean, reproducible R code using `glmmTMB` (and supplementary tools) that properly specifies random effects structures, variance components, and distributional assumptions for actuarial contexts.
+2. **Fit, diagnose, and compare GLMMs** using both frequentist (`glmmTMB`, `lme4`) and Bayesian (`brms`) tools, choosing the right approach for the problem at hand.
 
-3. **Bridge statistical methods to actuarial practice:** Understand how credibility emerges naturally from partial pooling in mixed models, how to validate assumptions, and how modeling choices align with ASOP-25 and professional standards.
+3. **Interpret variance components and random effects** in actuarial terms --- as credibility parameters, heterogeneity measures, and shrinkage predictors.
 
-4. **Handle complexity:** Implement zero-inflated models, random slopes, temporal structures, and Bayesian extensions to address real-world data challenges in casualty pricing.
+4. **Handle real-world complexity** --- zero-inflation, overdispersion, random slopes, model selection --- on realistic insurance datasets.
 
-5. **Evaluate models rigorously:** Perform diagnostics, comparisons to simpler alternatives, and validation exercises that demonstrate your ability to recommend appropriate models to stakeholders.
+5. **Defend modeling choices** to regulators and stakeholders, with proper documentation aligned to ASOP-25 and CAS professional standards.
 
----
-
-## Project Structure: Nine Integrated Modules
-
-### Module 1: Foundations of GLMs & Credibility in Insurance Pricing
-
-**Duration:** Foundational; revisit throughout project  
-**Core Objective:** Establish the theoretical and practical bedrock for all subsequent modules.
-
-#### Deliverables
-
-**Conceptual Document (3–4 pages):**
-- Define the fundamental distributions used in casualty insurance (Poisson, negative binomial, gamma, lognormal) and explain when each is appropriate for frequency, severity, and pure premium modeling.
-- Explain the exponential family framework and canonical links (log for frequency, identity/log for severity).
-- Motivate GLMs: Why are they preferable to classical rating techniques? How do they improve upon multiplicative models?
-- Introduce the concept of insufficient data and explain why credibility theory is essential.
-
-**R Workflow Example – Poisson Frequency GLM:**
-
-```r
-# Load and explore casualty data (synthetic or real)
-# Fit a Poisson GLM for claim frequency
-gl_freq <- glm(claims ~ age + region + vehicle_type, 
-               family = poisson(), data = pricing_data)
-summary(gl_freq)
-
-# Extract and interpret coefficients, deviance, AIC
-# Compare to baseline/null models
-# Visualize exposure and fitted rates by rating variables
-```
-
-**Credibility Theory Primer (2–3 pages):**
-- Bühlmann credibility formula: $Z = \frac{n}{n + k}$ where $k = \frac{\tau^2}{\sigma^2}$.
-- Manual calculation of credibility-weighted estimates.
-- Illustration: Show how a small insured's claim history is credibility-weighted toward the collective experience.
-- Contrast credibility weighting with simple averaging.
-
-**Comparative Analysis:**
-- Fit a simple rate (collective average) vs. GLM-only model vs. (preview) credibility-adjusted GLM.
-- Create a comparison table showing predictions for example risk profiles.
-- Highlight how GLMs outperform rate-averaging, especially with sparse data.
-
-#### Key Concepts to Embed
-
-- Maximum likelihood estimation for GLMs; deviance and goodness-of-fit metrics.
-- How rating factors (age, region, vehicle_type) affect claim probability and pure premiums.
-- Distinction between frequency and severity modeling.
+6. **Know the frontier** --- INLA, distributional GLMMs, regularized mixed models --- well enough to evaluate when these tools are warranted.
 
 ---
 
-### Module 2: Classical Credibility Theory & Manual Implementation
+## Pedagogical Design
 
-**Duration:** Intermediate  
-**Core Objective:** Develop intuition for credibility; implement it by hand before embedding in models.
+### Core Principles
 
-#### Deliverables
+1. **Concrete before abstract.** Fit models early (Module 3), understand estimation theory later (Module 4). Actuarial learners are action-oriented; they need to see the tool working before investing in the mechanics.
 
-**Credibility Theory Deep-Dive (3–4 pages):**
-- Formal derivation of Bühlmann credibility (Bayesian framework).
-- Explain the variance of the process mean ($\tau^2$) and the expected value of the variance ($\sigma^2$).
-- Parameter estimation: How to estimate $\tau^2$ and $\sigma^2$ from data?
-- Limited fluctuation credibility vs. Bühlmann credibility.
+2. **Spiral learning.** The credibility-partial-pooling-shrinkage concept is revisited in every module from a different angle: manual calculation (Module 2), GLMM random effects (Module 3), variance components (Module 4), Bayesian posteriors (Module 5).
 
-**R Implementation – Manual Credibility Calculations:**
+3. **Single running example.** A core insurance dataset is used across Modules 2--5 to build deep familiarity. The learner sees manual credibility, frequentist GLMM, and Bayesian GLMM applied to the same data, making the equivalences concrete.
 
-```r
-# Example: Rate a portfolio of policyholders with limited claim history
-data <- data.frame(
-  policyholder_id = 1:10,
-  claims = c(0, 1, 2, 1, 0, 3, 1, 2, 0, 1),
-  exposure = c(1, 0.5, 1, 1, 1, 1, 0.8, 1, 1, 1)
-)
+4. **Just-in-time theory.** Mathematical foundations (Henderson's equations, Laplace approximation, conditional vs. marginal interpretation) are introduced when they are needed to solve a specific problem, not before.
 
-# Estimate collective experience
-collective_freq <- sum(data$claims) / sum(data$exposure)
+5. **Bayesian as parallel framework, not extension.** Bayesian methods are introduced alongside frequentist methods from Module 3 onward, not deferred to a late module. This reinforces the credibility connection and gives learners flexibility.
 
-# Calculate credibility parameters
-# (Estimate tau_sq and sigma_sq from observed data)
+6. **Show failures.** Convergence warnings, poor diagnostics, overparameterized models --- the learner encounters and resolves these deliberately. Troubleshooting skill is as important as model-fitting skill.
 
-# Apply Bühlmann credibility
-Z <- credibility_factor_function(data$exposure, tau_sq, sigma_sq)
-data$credible_rate <- Z * (data$claims / data$exposure) + 
-                      (1 - Z) * collective_freq
-```
+### What Makes This Plan Different from the Standard GLMM Curriculum
 
-**Case Study Walkthrough:**
-- Take a small hypothetical dataset of policyholders with varying claim counts.
-- Compute credibility-weighted premiums manually and explain each step.
-- Compare to uncredibility-weighted rates and raw empirical rates.
-- Document insights on how credibility stabilizes sparse-data estimates.
-
-#### Key Concepts to Embed
-
-- The credibility coefficient $Z$ as a balance between individual and collective experience.
-- Why credibility becomes unnecessary as data volume increases ($Z \to 1$).
-- Connection to Bayesian posterior estimation and shrinkage.
+Most GLMM curricula (ecology-focused, biostatistics-focused) start from linear models and build up to mixed models without any credibility context. For actuaries, this misses the crucial insight: **you already understand partial pooling intuitively from credibility theory**. This plan exploits that prior knowledge ruthlessly, using it as the bridge that makes every new concept click faster.
 
 ---
 
-### Module 3: Transition to GLMMs – Why & How
+## Project Structure: Eight Modules
 
-**Duration:** Intermediate  
-**Core Objective:** Motivate random effects modeling as a modern, flexible extension of classical credibility.
+### Module 1: GLM Refresher & The Credibility Problem
 
-#### Deliverables
+**Duration:** ~1 week
+**Objective:** Refresh GLM mechanics and surface the sparse-data problem that motivates everything that follows.
 
-**Conceptual Bridge Document (2–3 pages):**
-- Explain why classical credibility has limitations (e.g., assumes exchangeable risks, requires known variance components).
-- Introduce random effects as a generalization: Instead of estimating a single credibility coefficient, use likelihood-based methods to estimate the variance structure of random intercepts.
-- Show how a random intercept model naturally produces partial pooling—a generalization of credibility.
-- Highlight advantages: Flexible within-subject structure, simultaneous estimation of fixed and random effects, ability to handle unbalanced data and multiple levels of hierarchy.
+**Core Content:**
+- Quick review of exponential family distributions for insurance (Poisson, negative binomial, gamma, Tweedie) and canonical links
+- Fit a Poisson GLM for claim frequency on insurance data; interpret coefficients and deviance
+- Identify where GLM predictions are unstable: sparse cells, low-exposure groups, extreme rate estimates
+- Motivate credibility: "We need a principled way to stabilize sparse-data estimates by borrowing strength from the collective."
 
-**Conceptual Diagram:**
-- Visualize: Fixed-effects-only GLM → Random intercept GLMM → Random slopes GLMM.
-- Show how predictions shrink toward the population mean as a function of group-level variance.
+**Key Connection:** GLMs are the *starting point* for insurance pricing, but they treat every group independently. When groups have little data, this produces unreliable estimates. Credibility theory and mixed models solve this.
 
-**R Comparison: GLM vs. GLMM**
+**References:**
+- CAS Monograph No. 5, "Generalized Linear Models for Insurance Rating" (Goldburd, Khare, Tevet, 2nd Ed.) --- prerequisite refresher
+- CAS Monograph No. 14, Ch. 1--2 --- actuarial historical context and GLM review
 
-```r
-library(glmmTMB)
+**Datasets:** `freMTPL2freq` from `CASdatasets` (678k French motor policies; rich covariates, clear regional hierarchy)
 
-# Fixed-effects-only GLM (like classical credibility baseline)
-glm_fixed <- glm(claims ~ age + region + policyholder_id, 
-                 family = poisson(), data = df)
-
-# Random intercept GLMM (partial pooling of policyholder effects)
-glmm_ri <- glmmTMB(claims ~ age + region + (1 | policyholder_id), 
-                   family = poisson(), data = df)
-
-# Compare predictions for a typical policyholder
-# Show how GLMM predictions are "shrunk" relative to fixed-effects GLM
-```
-
-**Visualization Exercise:**
-- Plot fitted rates by policyholder for both models.
-- Highlight the shrinkage effect: smaller insureds' predictions move toward collective estimates.
-- Annotate with data volume per policyholder to show relationship between data and shrinkage.
-
-#### Key Concepts to Embed
-
-- Partial pooling and its relationship to credibility.
-- Random effects variance as an estimate of group-level heterogeneity.
-- Likelihood-based estimation vs. moment-based credibility.
+**Deliverable:** Quarto notebook showing a fitted GLM with identified problem areas (unstable predictions for sparse groups).
 
 ---
 
-### Module 4: GLMM Theory, Estimation & Assumptions
+### Module 2: Classical Credibility Theory
 
-**Duration:** Advanced; theoretical foundation  
-**Core Objective:** Understand the mechanics of GLMM inference and know the assumptions that underpin model validity.
+**Duration:** ~1--2 weeks
+**Objective:** Develop deep intuition for credibility as manual partial pooling. Derive the Buhlmann formula, implement it by hand, and foreshadow the connection to mixed models and Bayesian inference.
 
-#### Deliverables
+**Core Content:**
+- Buhlmann credibility formula: $\hat{\mu}_j = Z_j \bar{y}_j + (1 - Z_j) \hat{\mu}$, where $Z_j = \frac{n_j}{n_j + k}$ and $k = \sigma^2 / \tau^2$
+- Variance decomposition: between-group variance ($\tau^2$, the "process variance" or VHM) and within-group variance ($\sigma^2$, the "sampling variance" or EVPV)
+- Parameter estimation via method of moments (ANOVA-based)
+- Buhlmann-Straub extension (heterogeneous weights/exposures)
+- Bayesian derivation: under Gaussian-Gaussian conjugacy, the Bayesian posterior mean IS the Buhlmann credibility estimate. This is the first appearance of the central equivalence.
+- Limited fluctuation credibility (briefly, for contrast)
 
-**GLMM Theory Document (4–5 pages):**
+**Key Insight:** The credibility weight $Z$ balances individual experience against collective experience. Large $\tau^2$ (groups really differ) $\Rightarrow$ trust individual data more. Large $\sigma^2$ (noisy observations) $\Rightarrow$ trust the collective more. This is **shrinkage**.
 
-- **Model formulation:** Define the conditional and marginal models.
-  - Conditional on random effects: $\mathbf{y}_i | \mathbf{b}_i \sim f(\mu_i, \phi)$ where $\mu_i = g^{-1}(\mathbf{X}_i \boldsymbol{\beta} + \mathbf{Z}_i \mathbf{b}_i)$.
-  - Marginal distribution: Integrate out random effects (often intractable; motivates approximations).
+**References:**
+- CAS Monograph No. 14, Ch. 3 --- outstanding Buhlmann/Buhlmann-Straub treatment with R code
+- Buhlmann & Gisler, *A Course in Credibility Theory and its Applications* --- Ch. 3 (Bayesian credibility), Ch. 8 (BLUP connection)
+- `actuar` R package --- `cm()` function for credibility models
 
-- **Estimation methods:**
-  - **REML (Restricted Maximum Likelihood):** Accounts for loss of degrees of freedom in estimating fixed effects; recommended for random effects inference.
-  - **ML (Maximum Likelihood):** Used for model comparison (likelihood ratio tests).
-  - **Laplace and AGQ (Adaptive Gaussian Quadrature):** Approximations for the marginal likelihood when exact integration is infeasible.
+**Datasets:** Small synthetic portfolio (3--5 classes, 4--5 periods) following CAS Monograph 14 Ch. 3 example. Same data reused in Module 3.
 
-- **Assumptions:**
-  - Random intercepts/slopes are normally distributed.
-  - Predictors are measured without error.
-  - No unmeasured confounding.
-  - Conditional independence given random effects.
-  - Correctly specified variance structure.
-
-- **Consequences of violations:** How do they affect inference? When can we be flexible?
-
-**Variance Component Interpretation (2–3 pages):**
-- Explain random intercept variance $\tau_0^2$: Heterogeneity of baseline risk across groups.
-- Relate to credibility: Groups with higher variance are shrunk less toward the collective estimate.
-- Discuss ICC (Intra-Class Correlation): Proportion of total variance due to grouping; a measure of within-group clustering.
-- Practical guidance: When is within-group variance meaningful in pricing?
-
-**R Implementation – Model Fitting & Diagnostics:**
-
-```r
-library(glmmTMB)
-library(lme4)
-
-# Fit GLMM with REML
-m1 <- glmmTMB(claims ~ age + region + (1 | policyholder_id), 
-              family = poisson(), data = df, REML = TRUE)
-
-# Extract random effects and variance components
-ranef(m1)
-VarCorr(m1)
-
-# Compute ICC
-tau_sq <- attr(VarCorr(m1)$cond$policyholder_id, "stddev")^2
-sig_sq <- sigma(m1)^2
-icc <- tau_sq / (tau_sq + sig_sq)
-
-# Compare REML vs. ML for LRT
-m1_ml <- update(m1, REML = FALSE)
-m0_ml <- glmmTMB(claims ~ age + region + (1 | policyholder_id), 
-                 family = poisson(), data = df, REML = FALSE)
-anova(m0_ml, m1_ml)  # LRT for variance component
-```
-
-**Assumptions Check Document:**
-- List key assumptions and provide R code to assess each (covered more formally in Module 6).
-- Explain trade-offs: When is it acceptable to relax assumptions, and what are the consequences?
-
-#### Key Concepts to Embed
-
-- Marginal vs. conditional models and why marginal predictions can differ from conditional ones.
-- The role of Laplace approximation in `glmmTMB`.
-- REML as the principled choice for random effects inference.
+**Deliverable:** Quarto notebook with complete hand calculations of variance components, credibility weights, and credibility-weighted estimates. Include the Bayesian derivation showing posterior mean = Buhlmann formula.
 
 ---
 
-### Module 5: Advanced GLMMs – Real-World Actuarial Complexity
+### Module 3: From Credibility to Mixed Models
 
-**Duration:** Advanced; practical application  
-**Core Objective:** Extend GLMMs to handle non-standard data features common in casualty insurance.
+**Duration:** ~2 weeks
+**Objective:** Fit the first random intercept GLMM and demonstrate that it produces the same credibility-weighted estimates automatically, while handling covariates that classical credibility cannot.
 
-#### 5.1: Zero-Inflation & Overdispersion
+**This is the pivotal module.** If the learner doesn't internalize the credibility-GLMM equivalence here, nothing else will stick.
 
-**Motivation:**
-- Many casualty datasets have excess zeros (many policyholders with zero claims in a period).
-- Poisson/negative binomial models may not capture this excess; zero-inflation components address it.
-- Overdispersion: Variance exceeds the mean; address via negative binomial or zero-inflation.
+**Core Content:**
+- The random intercept LMM as a likelihood framework for hierarchical data
+- BLUP (Best Linear Unbiased Predictor) derivation for the simple Gaussian case
+- **The central result:** BLUP = Buhlmann credibility weight $\times$ (group mean $-$ population mean). Derive algebraically and verify numerically on the Module 2 dataset.
+- First GLMM with `glmmTMB`: `claims ~ age + region + (1 | territory), family = poisson()`
+- First Bayesian GLMM with `brms`: same model, flat priors. Show results are nearly identical to frequentist.
+- Extract variance components and random effects; compare to manual credibility calculations
+- **Shrinkage visualization:** Plot no-pooling (raw group means), complete-pooling (grand mean), and partial-pooling (GLMM estimates) on the same axis. Show that GLMM predictions are always between the extremes, with more shrinkage for smaller groups.
 
-**Deliverables:**
+**Key Insight:** The GLMM does everything credibility does --- and more. It estimates variance components from data (no manual calculation), handles covariates naturally, and extends to non-Gaussian responses. Credibility is a special case of the mixed model.
 
-**Conceptual Document (2 pages):**
-- Zero-Inflated Poisson (ZIP) and Zero-Inflated Negative Binomial (ZINB) models.
-- Interpretation: Component 1 (inflation process) determines zero probability; Component 2 (count process) models claim counts conditional on claims occurring.
-- When to use: Claims data with structural zeros vs. sampling zeros.
-- Connection to credibility: How does zero-inflation interact with partial pooling?
+**References:**
+- Frees, Young & Luo (1999), "A Longitudinal Data Analysis Interpretation of Credibility Models" --- **the landmark paper** connecting credibility to mixed models
+- Robinson (1991), "That BLUP is a Good Thing" --- classic exposition of BLUP
+- CAS Monograph No. 14, Ch. 4--5 (presumed: mixed models content)
+- Existing notebook: `pooling_explanations.qmd` --- excellent shrinkage visualizations to build on
 
-**R Implementation:**
+**Datasets:** Same synthetic portfolio from Module 2 (to verify credibility-GLMM equivalence numerically), then `usworkcomp` from `CASdatasets` (workers' comp with state hierarchy) for a realistic example.
 
-```r
-library(glmmTMB)
-
-# Standard Poisson GLMM
-m_pois <- glmmTMB(claims ~ age + region + (1 | policyholder_id), 
-                  family = poisson(), data = df)
-
-# Zero-inflated negative binomial GLMM
-m_zinb <- glmmTMB(claims ~ age + region + (1 | policyholder_id),
-                  ziformula = ~1,  # Zero-inflation intercept only
-                  family = nbinom2(), data = df)
-
-# Extract zero-inflation parameter
-summary(m_zinb)
-
-# Compare AIC
-AIC(m_pois, m_zinb)
-
-# Predictions under each model
-pred_pois <- predict(m_pois, newdata = new_data, type = "link")
-pred_zinb <- predict(m_zinb, newdata = new_data, type = "link")
-```
-
-**Case Study:**
-- Simulate or use data with structural zeros.
-- Fit Poisson, NB, ZIP, ZINB models.
-- Compare via AIC, residual diagnostics, and prediction accuracy.
-- Document when zero-inflation is warranted.
-
-#### 5.2: Random Slopes
-
-**Motivation:**
-- Not all rating factors affect all groups equally. E.g., age may have different effects across regions.
-- Random slopes allow the effect of a predictor to vary by group.
-- Improves model fit and allows richer, group-specific pricing rules.
-
-**Deliverables:**
-
-**Conceptual Document (2 pages):**
-- Model formulation: $\mu_{ij} = g^{-1}(\alpha + \beta_{0j} + (\gamma + \beta_{1j}) \times x_{ij})$ where $\beta_{0j}, \beta_{1j}$ vary by group.
-- Interpretation: Both intercepts and slopes are random; they are typically correlated.
-- Practical use: Different age-rating curves for different regions or policy types.
-- Trade-off: More flexibility but more parameters to estimate; requires more data per group.
-
-**R Implementation:**
-
-```r
-library(glmmTMB)
-
-# Random intercept only
-m_ri <- glmmTMB(claims ~ age + region + (1 | state), 
-                family = poisson(), data = df)
-
-# Random intercept and random slope for age
-m_rs <- glmmTMB(claims ~ age + region + (age | state), 
-                family = poisson(), data = df)
-
-# Random slope for age, no random intercept
-m_rs_no_int <- glmmTMB(claims ~ age + region + (0 + age | state), 
-                       family = poisson(), data = df)
-
-# Extract and visualize random slopes
-re_slopes <- ranef(m_rs)$cond$state
-plot(re_slopes$age, main = "Random slopes for age by state")
-```
-
-**Visualization:**
-- Plot fitted age-rating curves by state under both RI and RS models.
-- Show how random slopes capture regional heterogeneity in age effects.
-
-#### 5.3: Temporal & Correlation Structures
-
-**Motivation:**
-- Insurance data often has temporal structure: Claims for the same policyholder over multiple years are correlated.
-- Ignoring temporal dependence underestimates standard errors and biases variance components.
-- Temporal structures (e.g., AR1) model how correlation decays with time.
-
-**Deliverables:**
-
-**Conceptual Document (2 pages):**
-- Common structures: Compound symmetry (exchangeable), AR(1) (autoregressive), unstructured.
-- When to use: Longitudinal data with multiple observations per subject.
-- Implementation challenges: `glmmTMB` supports selected structures; more complex structures may require custom code or alternative software.
-
-**R Implementation (Conceptual):**
-
-```r
-library(glmmTMB)
-
-# Longitudinal data: Multiple years per policyholder
-# Simple random intercept (no temporal structure)
-m_no_time <- glmmTMB(claims ~ age + year + (1 | policyholder_id), 
-                     family = poisson(), data = df_long)
-
-# AR(1) structure via explicit covariance (simplified; glmmTMB has limited native temporal support)
-# For full temporal covariance structures, consider lme4 with additional packages 
-# or software like PROC GENMOD (SAS)
-
-# Workaround in glmmTMB: Add (1 | policyholder_id:year) for compound symmetry
-m_compound <- glmmTMB(claims ~ age + (1 | policyholder_id) + (1 | policyholder_id:year), 
-                      family = poisson(), data = df_long)
-```
-
-**Documentation:**
-- Acknowledge `glmmTMB`'s limitations with complex temporal structures.
-- Suggest alternative tools (e.g., `nlme`, `mgcv`, or specialized Bayesian software) for advanced temporal modeling.
-- Provide guidance on when to use simpler structures vs. when to escalate to other software.
-
-#### Overall Module 5 Deliverables
-
-- Comprehensive guide document (8–10 pages total) synthesizing zero-inflation, random slopes, and temporal structures.
-- R workflow demonstrating fitting, comparison, and interpretation of each.
-- Case study comparing multiple competing models and justifying the final choice.
-- Practical guidance on when each extension is warranted.
-
-#### Key Concepts to Embed
-
-- Model selection via AIC, BIC, and likelihood ratio tests.
-- Parsimony vs. fit: Overfitting risk with too many random effects.
-- Interpretation of complex models for actuarial audiences.
+**Deliverable:** Quarto notebook demonstrating the equivalence on toy data, then applying GLMM to real insurance data. Both frequentist and Bayesian fits.
 
 ---
 
-### Module 6: Model Diagnostics, Validation & Comparison
+### Module 4: GLMM Theory, Estimation & Diagnostics
 
-**Duration:** Intermediate–Advanced; practical  
-**Core Objective:** Learn rigorous practices for assessing model adequacy, comparing alternatives, and validating pricing models before deployment.
+**Duration:** ~2--3 weeks
+**Objective:** Understand the mechanics of GLMM inference, know the assumptions that underpin model validity, and diagnose problems.
 
-#### Deliverables
+Now that the learner has seen GLMMs work, they're ready to peek under the hood.
 
-**Comprehensive Diagnostics Guide (4–5 pages):**
+**Core Content:**
 
-- **Residual analysis:**
-  - Pearson and deviance residuals; their interpretation.
-  - Quantile–Quantile plots for residuals.
-  - Residual vs. fitted plots; assessment of heteroscedasticity and systematic patterns.
+*Estimation Theory:*
+- The intractable marginal likelihood and why it matters
+- ML vs. REML: use REML for variance component inference, ML for model comparison
+- Laplace approximation (how `glmmTMB` works): fast, accurate for large clusters, can be poor for small clusters with binary/count data
+- Adaptive Gauss-Hermite Quadrature (how `lme4` with `nAGQ > 1` works): more accurate, but scales poorly with random effect dimension
+- PQL: mention as deprecated; explain why (biased, not asymptotically correct)
+- TMB (Template Model Builder): what it does under the hood (automatic differentiation + Laplace)
+- Decision tree: when to use `glmmTMB` (speed, flexibility) vs. `lme4` with AGQ (validation) vs. `brms` (full posterior)
 
-- **Overdispersion testing:**
-  - Pearson chi-square goodness-of-fit test.
-  - Dispersion parameter estimation and interpretation.
-  - Residual-based overdispersion measures.
+*Variance Components & Interpretation:*
+- Random intercept variance $\tau^2$: heterogeneity of baseline risk across groups
+- ICC (Intra-Class Correlation): proportion of total variance due to grouping
+- Relationship to credibility: $k = \sigma^2 / \tau^2$ determines shrinkage strength
 
-- **Variance component assessment:**
-  - Confidence intervals for random intercepts via profile likelihood or bootstrap.
-  - Likelihood ratio tests for variance components (Model A: $\tau^2 = 0$ vs. Model B: $\tau^2 > 0$).
-  - ICC interpretation in context of pricing (how much within-group clustering is meaningful?).
+*Conditional vs. Marginal Interpretation (critical section):*
+- For nonlinear link functions (log, logit), the marginal mean $\neq$ the conditional mean at $b = 0$
+- Poisson log-link: $E[y] = \exp(X\beta + \tau^2/2)$, inflated by $\exp(\tau^2/2)$
+- When to use marginal predictions (new business pricing, rate filings) vs. conditional predictions (individual policyholder pricing)
+- R code: `predict(..., re.form = NA)` vs. `predict(..., re.form = NULL)`
 
-- **Fixed effects diagnostics:**
-  - Collinearity checks (VIF, correlation matrix).
-  - Influential points and outliers (leverage, cook's distance adapted for mixed models).
+*Random Effects as Predictions, Not Parameters:*
+- Fixed effects are estimated; random effects are predicted (conditional modes/means)
+- You can test whether $\tau^2 = 0$ (LRT), but you cannot hypothesis-test individual random effects
+- The `re.form` argument in `predict()`: `NA` for population-average, `NULL` for subject-specific
 
-- **Prediction validation:**
-  - Hold-out test set predictions: Compare fitted vs. held-out claim counts.
-  - Calibration plots: Observed vs. predicted claim frequencies by decile.
-  - Lift analysis: How well does the model rank risks?
+*Diagnostics:*
+- DHARMa simulation-based residual diagnostics (the best tool for GLMM residuals)
+- Overdispersion testing (Pearson chi-square, DHARMa `testDispersion`)
+- Q-Q plots of random effects (checking normality assumption)
+- Variance component confidence intervals (profile likelihood, bootstrap)
+- Convergence checking: what warnings mean, how to fix them (simplify random effects, try different optimizer, scale predictors)
 
-**R Implementation – Diagnostic Workflow:**
+**Key Insight:** You don't need to fully understand the math to use GLMMs, but you do need to know when the tool is lying to you. Diagnostics are not optional.
 
-```r
-library(glmmTMB)
-library(ggplot2)
-library(DHARMa)  # Residual diagnostics for GLMMs
+**References:**
+- Zuur et al., *A Beginner's Guide to GLM and GLMM with R* --- Ch. 6 (model validation), Ch. 11 (zero-inflation diagnostics)
+- Stroup, *Generalized Linear Mixed Models* --- Ch. 2--4 (estimation theory, targeted reading)
+- Antonio & Beirlant (2007), "Actuarial Statistics with GLMMs" --- insurance-specific GLMM application
+- Skrondal & Rabe-Hesketh (2009), "Prediction in multilevel GLMs" --- conditional vs. marginal
+- Ben Bolker's GLMM FAQ (bbolker.github.io/mixedmodels-misc/glmmFAQ.html) --- troubleshooting
+- DHARMa package documentation (Hartig)
 
-# Fit GLMM
-m <- glmmTMB(claims ~ age + region + (1 | policyholder_id), 
-             family = poisson(), data = df)
+**Datasets:** Synthetic data with known $\tau^2$ (for calibration exercises: "did the model recover the true variance component?"), then `freMTPL2freq` for realistic diagnostics.
 
-# Extract residuals
-resid_pearson <- residuals(m, type = "pearson")
-resid_deviance <- residuals(m, type = "deviance")
-
-# Diagnostic plots
-par(mfrow = c(2, 2))
-plot(fitted(m), resid_pearson, main = "Pearson Residuals vs. Fitted")
-qqnorm(resid_pearson, main = "Q-Q Plot")
-hist(resid_pearson, main = "Histogram of Residuals")
-
-# DHARMa diagnostics (specialized for GLMMs)
-sim_resid <- simulateResiduals(m)
-plot(sim_resid)
-testDispersion(sim_resid)
-
-# Overdispersion ratio
-sum(resid_pearson^2) / df.residual(m)
-
-# LRT for variance component
-m0 <- glm(claims ~ age + region, family = poisson(), data = df)
-anova(m, m0)  # Comparison (note: different structures; use glmmTMB versions for proper LRT)
-
-# Prediction validation
-pred_freq <- predict(m, newdata = test_data, type = "link", re.form = NA)  # Population-level
-obs_freq <- test_data$claims / test_data$exposure
-
-# Calibration plot
-ggplot(data.frame(observed = obs_freq, predicted = exp(pred_freq)), 
-       aes(x = predicted, y = observed)) +
-  geom_point() + geom_abline(slope = 1, intercept = 0) +
-  labs(title = "Calibration: Predicted vs. Observed Frequency")
-```
-
-**Model Comparison Framework (2–3 pages):**
-- Define competing hypotheses: Simple fixed-effects GLM vs. random intercept GLMM vs. random slopes vs. zero-inflation variants.
-- Comparison criteria:
-  - **AIC/BIC:** Relative model fit, penalizing complexity.
-  - **Likelihood ratio test:** For nested models.
-  - **Out-of-sample prediction error:** Practical measure of model performance.
-  - **Interpretability & regulatory acceptance:** Can you explain and defend the model to regulators?
-- Decision tree: Guide the user through model selection based on data and business context.
-
-**Case Study – Comprehensive Model Comparison:**
-- Motivating scenario: You've been given casualty insurance claim frequency data with policyholders clustered by state and agent.
-- Fit 5–6 competing models: GLM, GLMM RI, GLMM RS, GLMM with zero-inflation, etc.
-- Conduct diagnostics for each.
-- Compare via AIC, LRT, and out-of-sample accuracy.
-- Document decision process and final recommendation with justification.
-- Deliverable: 2-page technical summary suitable for actuarial stakeholders.
-
-#### Key Concepts to Embed
-
-- The difference between inference goals (estimating variance components) and prediction goals (accurate claim forecasts).
-- Trade-offs between model complexity and interpretability.
-- Regulatory and professional standards for model validation (ASOP-25 alignment).
+**Deliverable:** Quarto notebook covering estimation method comparison on one dataset, diagnostics workflow, and a deliberately overparameterized model that fails to converge (with recovery steps).
 
 ---
 
-### Module 7: Bayesian Extensions – Full Credibility & Flexibility
+### Module 5: Bayesian GLMMs & The Credibility Connection
 
-**Duration:** Advanced; conceptual & practical  
-**Core Objective:** Leverage Bayesian inference to obtain credible intervals, incorporate expert judgment, and adapt to complex data structures.
+**Duration:** ~2--3 weeks
+**Objective:** Deepen the Bayesian approach. Show that Bayesian hierarchical models are the most general framework for credibility, with explicit priors, full uncertainty quantification, and natural handling of complex structures.
 
-#### Deliverables
+**Core Content:**
 
-**Bayesian Credibility & GLMM Bridge (3–4 pages):**
-- Classical credibility as an implicit Bayesian prior: Bühlmann credibility naturally emerges from a hierarchical model with normal priors.
-- Full Bayesian GLMMs: Specify informative or non-informative priors; obtain posterior distributions for all parameters.
-- Advantages: Credible intervals, direct probability statements, incorporation of expert priors, flexibility in model structure.
-- Computational methods: MCMC (Markov Chain Monte Carlo), Hamiltonian Monte Carlo (HMC).
+*Bayesian Credibility, Formally:*
+- Derive the Bayesian posterior mean under Gaussian-Gaussian conjugacy --- it IS the Buhlmann credibility formula
+- Show algebraically: posterior mean = BLUP = Buhlmann credibility (all three are identical for LMMs)
+- Extend conceptually to GLMMs: the posterior still produces credibility-weighted predictions, just not analytically tractable
 
-**Bayesian Modeling Using `brms`:**
+*brms/Stan in Depth:*
+- Prior specification: weakly informative (default), regularizing, informative (from actuarial judgment)
+- Prior predictive checks: "What do my priors imply about observable data?"
+- Posterior predictive checks: "Does the fitted model generate data that looks like the real data?"
+- Convergence diagnostics: R-hat, ESS, trace plots, divergent transitions
+- Model comparison: LOO-CV (leave-one-out cross-validation via `loo` package) as a robust alternative to AIC
 
-```r
-library(brms)
+*Practical Comparison:*
+- Refit Module 3 models in `brms`; compare posterior means to REML estimates
+- Show that with flat priors, Bayesian and frequentist results converge
+- Show a case where informative priors improve estimates (small-sample groups)
+- Show a case where `glmmTMB` gives convergence warnings but `brms` with regularizing priors converges cleanly
 
-# Specify a Bayesian Poisson GLMM
-m_bayes <- brm(
-  claims ~ age + region + (1 | policyholder_id),
-  family = poisson(),
-  data = df,
-  prior = c(
-    prior(normal(0, 1), class = "b"),  # Priors on fixed effects
-    prior(exponential(1), class = "sd")  # Prior on random effect SD
-  ),
-  chains = 4, iter = 2000, warmup = 1000
-)
+*Prior Selection for Actuarial Applications:*
+- Fixed effects (log scale): Normal(0, 2) --- implies rate ratios between 0.01 and 100
+- Random effect SD: Exponential(1) or Half-Normal(0, 1) --- weakly informative, allows $\tau \to 0$
+- Correlation matrices (for random slopes): LKJ($\zeta = 2$) --- weakly favors independence
+- Sensitivity analysis: always refit with different priors; if conclusions change, data is not informative enough
 
-# Extract posterior samples
-posterior_samples(m_bayes)
+*Optional: PyMC/Bambi Introduction:*
+- Same model in Python for learners who want a second implementation language
+- Brief comparison to brms/Stan
 
-# Posterior predictions with credible intervals
-posterior_epred(m_bayes, newdata = new_data)
+**Key Insight:** Bayesian hierarchical models make the credibility assumption *explicit*: the prior on $\tau$ is literally a belief about between-group variability. The posterior for each group is a credibility-weighted blend of individual data and the population prior.
 
-# Posterior predictive check
-pp_check(m_bayes, ndraws = 100)
-```
+**References:**
+- McElreath, *Statistical Rethinking* (2nd Ed.) --- best conceptual explanations of hierarchical models
+- Gelman & Hill, *Data Analysis Using Regression and Multilevel/Hierarchical Models* --- interpretation and visualization
+- Burkner (2017, 2018), brms papers in *Journal of Statistical Software* and *The R Journal*
+- Buhlmann & Gisler, Ch. 3 (Bayesian credibility derivation)
 
-**Bayesian Zero-Inflation Example:**
+**Datasets:** Same running example from Modules 2--3 (to complete the three-method comparison), then `usworkcomp` for a realistic Bayesian analysis.
 
-```r
-m_bayes_zinb <- brm(
-  claims ~ age + region + (1 | policyholder_id),
-  family = zero_inflated_negbinomial(),
-  data = df,
-  prior = c(...),
-  chains = 4, iter = 2000
-)
-```
-
-**Incorporation of Expert Prior Information (2 pages):**
-- Example: Actuaries have historical experience that age effects should be smooth and monotonic.
-- Specify regularizing priors to encode this knowledge.
-- Comparison: Prior without expert information vs. with; impact on posterior and predictions.
-- Discussion: When is informative priors appropriate vs. when should we let data dominate?
-
-**Convergence Diagnostics (1–2 pages):**
-- $\hat{R}$ (Rhat): Potential scale reduction factor; assess chain mixing.
-- Effective sample size (ESS): Accounting for autocorrelation in posterior samples.
-- Trace plots: Visual inspection of chain behavior.
-- R workflow:
-  ```r
-  # Check convergence
-  plot(m_bayes)  # Trace plots
-  summary(m_bayes)  # Rhat and ESS
-  
-  # All Rhat values should be < 1.01 for convergence
-  ```
-
-**Case Study – Bayesian Hierarchical Pricing Model:**
-- Motivating scenario: You want to price policies with limited individual claims history; use agent-level hierarchies and expert priors on agent effects.
-- Fit Bayesian hierarchical model with priors on agent random effects and fixed effects.
-- Demonstrate posterior distributions, credible intervals for agent-specific parameters.
-- Show how posteriors "borrow strength" across agents, improving stability for small agents.
-- Compare to frequentist GLMM: Posterior means vs. fixed estimates; width of credible intervals vs. confidence intervals.
-
-#### Key Concepts to Embed
-
-- Bayesian inference as a natural extension of frequentist GLMMs with explicit probability modeling.
-- MCMC as a computational tool; understanding when convergence is achieved.
-- Advantages for communication: Credible intervals directly answer "What is the probability that the true rate is in this interval?"
+**Deliverable:** Quarto notebook showing the three-method comparison (manual credibility, frequentist GLMM, Bayesian GLMM) on the same data, plus a full Bayesian analysis with prior/posterior diagnostics. Optional: Jupyter notebook with PyMC/Bambi.
 
 ---
 
-### Module 8: Industry Standards & Regulatory Alignment
+### Module 6: Extensions & Practical Complexity
 
-**Duration:** Intermediate; conceptual & applied  
-**Core Objective:** Understand professional expectations, standards, and regulatory requirements for actuarial models; ensure your GLMM pricing models meet these standards.
+**Duration:** ~2--3 weeks
+**Objective:** Extend GLMMs to handle the non-standard features common in real casualty insurance data.
 
-#### Deliverables
+**Core Content:**
 
-**ASOP-25 Alignment Document (3–4 pages):**
-- **ASOP-25 (Credibility)** requirements and how GLMMs satisfy them:
-  - Appropriateness of credibility method (partial pooling via GLMMs is credible).
-  - Data quality and sufficiency checks.
-  - Documentation of assumptions and sensitivity analyses.
-  - Comparison to alternatives.
-- **Risk-Based Capital (RBC) and reserving standards:** How do GLMM assumptions affect capital requirements?
-- **SOA/CAS learning objectives:** Coverage of GLM and credibility topics; how this project aligns.
-- **Practical mapping:** Link each module objective to actuarial professional standards.
+*Zero-Inflation:*
+- Structural zeros (never-claim policyholders) vs. sampling zeros (claim-eligible but no claim this period)
+- Zero-Inflated Poisson (ZIP) and Zero-Inflated Negative Binomial (ZINB) with random effects
+- Hurdle models as an alternative
+- `glmmTMB(..., ziformula = ~1)` and `brms(..., family = zero_inflated_negbinomial())`
 
-**Documentation & Reproducibility Guide (2–3 pages):**
-- Model documentation checklist: Objectives, data sources, variable definitions, transformations, model structure, assumptions, diagnostics, results, limitations.
-- Code reproducibility: Version control (Git), R session info, package versions, random seed management.
-- Regulatory readiness: How to present models to regulators and auditors; transparency and auditability.
+*Overdispersion:*
+- Negative binomial as an alternative to Poisson when variance > mean
+- Observation-level random effects as a flexible overdispersion solution
+- Diagnosis: DHARMa `testDispersion`, Pearson chi-square ratio
 
-**Professional Communication (1–2 pages):**
-- How to explain GLMMs to non-technical audiences: Avoid jargon; use analogies to classical credibility.
-- Structuring technical summaries for actuarial peers vs. senior management vs. regulators.
-- Visualizations: Effective plots for communicating model insights and uncertainty.
+*Random Slopes:*
+- When the effect of a covariate varies by group (e.g., age effect differs by territory)
+- `(age | territory)` syntax: random intercept + random slope + their correlation
+- Interpretation of the variance-covariance matrix for random effects
+- When random slopes are warranted (domain knowledge + LRT) vs. overparameterized
 
-**Governance & Model Lifecycle (1–2 pages):**
-- Model governance frameworks: Approval, monitoring, update triggers.
-- When to refit GLMMs: Annual? Quarterly? After significant data changes?
-- Validation in production: Ongoing monitoring of actual vs. predicted claim experience.
+*Model Selection:*
+- AIC/BIC for nested and non-nested model comparison
+- Likelihood ratio tests for variance components (boundary issues: $\tau^2 = 0$ is on the boundary)
+- LOO-CV for Bayesian models
+- Domain knowledge as the tiebreaker: "Can you explain and defend this model?"
 
-#### Key Concepts to Embed
+*Comprehensive Case Study:*
+- Fit 5--6 competing models to a realistic insurance dataset: GLM, random intercept GLMM, random slopes GLMM, ZIP GLMM, ZINB GLMM, Bayesian version of the best
+- Compare via AIC, diagnostics, holdout prediction
+- Document the decision process and final recommendation
 
-- Regulatory humility: GLMMs are flexible and powerful but must be applied with rigor and transparency.
-- Professional credibility: Use of advanced statistical methods must be coupled with clear communication and robust governance.
+**Key Insight:** The random intercept model is just the starting point. Real actuarial data has more structure --- overdispersion, excess zeros, group-varying effects. But complexity must be justified: start simple, add only what's needed.
 
----
+**References:**
+- Zuur et al. --- Ch. 7--8 (random slopes), Ch. 11 (zero-inflation)
+- glmmTMB vignettes (zero-inflation, covariance structures)
+- Bolker et al. (2009), "GLMMs: A practical guide for ecology and evolution" --- model specification guidance
 
-### Module 9: Advanced Topics & Frontier Extensions
+**Datasets:** `freMTPL2freq` (high zero proportion, regional hierarchy --- ideal for zero-inflation and random slopes), synthetic data with known random slope structure (for calibration).
 
-**Duration:** Advanced; applied research  
-**Core Objective:** Explore cutting-edge techniques and adaptations of GLMMs to emerging actuarial challenges.
-
-#### 9.1: High-Cardinality Predictors & GLMMNet
-
-**Motivation:**
-- Modern datasets often have many categorical predictors (e.g., zip codes, agent IDs, vehicle models).
-- Classical GLMM can lead to overfitting (too many fixed effects) or sparse groups with few observations.
-- **GLMMNet** combines machine learning (elastic net regularization) with mixed models to handle high-cardinality data.
-
-**Deliverables:**
-
-**Conceptual Document (2–3 pages):**
-- Problem: When do classical GLMMs struggle? What is overfitting in this context?
-- Solution: GLMMNet uses regularization (L1/L2 penalties) on fixed effects to encourage shrinkage and handle many predictors.
-- Relationship to actuarial pricing: Automatic feature selection; reduces model complexity without manual variable selection.
-- Reference: ArXiv paper on GLMMNet (https://arxiv.org/pdf/2301.12710).
-
-**R Implementation (Conceptual & Example Code):**
-
-```r
-# Note: GLMMNet not yet widely available in standard R; 
-# this is a conceptual/research module.
-# Alternative: Use standard glmmTMB with careful feature engineering or cross-validation.
-
-# Example: Fit GLMM with many zip codes (high-cardinality predictor)
-# Use cross-validation to select regularization parameter
-
-library(glmmTMB)
-
-# Without regularization: all zip codes estimated
-m_all_zips <- glmmTMB(claims ~ age + vehicle_type + zip_code + (1 | policyholder_id),
-                      family = poisson(), data = df)
-
-# With feature selection: pre-filter zip codes with low exposure
-df_filtered <- df %>%
-  group_by(zip_code) %>%
-  filter(n() >= 30) %>%  # Arbitrary threshold
-  ungroup()
-
-m_filtered <- glmmTMB(claims ~ age + vehicle_type + zip_code + (1 | policyholder_id),
-                      family = poisson(), data = df_filtered)
-```
-
-**Case Study:**
-- Motivating scenario: Pricing data with 500+ zip codes.
-- Fit standard GLMM (all zips as fixed effects) vs. filtered GLMM vs. zip as random effect.
-- Compare model complexity, interpretability, and cross-validation error.
-- Document trade-offs and practical guidance.
-
-#### 9.2: Mis-measured Covariates & SIMEX Methods
-
-**Motivation:**
-- Real-world data often includes measurement error in covariates (e.g., driver age estimated from license, vehicle values from book estimates).
-- Ignoring measurement error biases coefficient estimates and inflates or deflates standard errors.
-- **SIMEX (SIMulation-EXtrapolation):** A Bayesian-inspired method to correct for measurement error.
-
-**Deliverables:**
-
-**Conceptual Document (2–3 pages):**
-- Sources of measurement error in insurance data: Data entry, third-party errors, aggregation.
-- Impact: Bias toward zero for error-prone predictors; underestimated standard errors.
-- SIMEX intuition: Simulate additional measurement error, fit models, and extrapolate back to zero error.
-- Reference: ArXiv paper on Bayesian + SIMEX methods (https://arxiv.org/pdf/2310.0745).
-
-**R Implementation (Conceptual):**
-
-```r
-# Simplified illustration: Assume age is measured with error (e.g., SD = 2 years)
-
-library(simex)
-
-# Fit standard model (ignoring error)
-m_naive <- glm(claims ~ age_observed + region, family = poisson(), data = df)
-
-# SIMEX approach: 
-# 1. Simulate measurement error for observed predictor
-# 2. Fit models with increasing error levels
-# 3. Extrapolate back to true (error-free) scenario
-
-# (Full SIMEX implementation for GLMMs is complex; this is a conceptual illustration)
-
-# Rough workflow:
-set.seed(123)
-lambda_values <- seq(0, 2, by = 0.5)  # Levels of added error
-coefficients <- matrix(NA, nrow = length(lambda_values), ncol = 2)
-
-for (i in seq_along(lambda_values)) {
-  noise <- rnorm(nrow(df), 0, lambda_values[i])
-  df$age_noisy <- df$age_observed + noise
-  m_temp <- glm(claims ~ age_noisy + region, family = poisson(), data = df)
-  coefficients[i, ] <- coef(m_temp)[c("age_noisy", "region1")]
-}
-
-# Extrapolate back to lambda = 0 (error-free)
-# (Simplified; typically use polynomial regression and extrapolate)
-```
-
-**Case Study:**
-- Motivating scenario: You suspect policyholder age is recorded with error.
-- Fit naive GLM vs. SIMEX-corrected model.
-- Compare coefficients: Are they substantially different?
-- Practical guidance: When is measurement error likely to be consequential in pricing?
-
-#### 9.3: Emerging Directions & Open Problems
-
-**Conceptual Exploration (2–3 pages):**
-
-- **High-dimensional data:** How do GLMMs scale to thousands of predictors? What are computational and statistical challenges?
-
-- **Causal inference:** Can GLMMs help identify causal effects of rating factors? Discussion of confounding, colliders, and instrumental variables.
-
-- **Fair & ethical pricing:** Do GLMM rating factors inadvertently embed bias? How to audit for fairness?
-
-- **Unstructured data integration:** Can we incorporate image, text, or behavioral data into GLMMs?
-
-- **Federated learning:** Privacy-preserving model fitting across distributed insurer databases.
-
-**Suggested Further Reading:**
-- Academic papers on each topic.
-- Industry discussions (CAS forums, actuarial blogs).
-- Emerging software and tools.
-
-#### Key Concepts to Embed
-
-- GLMMs are not the end of the story; they are a stepping stone to more sophisticated approaches.
-- Actuarial practice will evolve; staying abreast of research ensures professional relevance.
+**Deliverable:** Case study Quarto notebook (5--7 pages equivalent) with full model comparison, diagnostics, and justified recommendation.
 
 ---
 
-## Project Execution & Deliverables
+### Module 7: Professional Practice & Regulatory Standards
 
-### Overall Deliverables
+**Duration:** ~1--2 weeks
+**Objective:** Ensure the learner can document, communicate, and defend GLMM-based pricing models in a professional actuarial context.
 
-1. **Module Workbooks (9 documents, 40–50 pages total):**
-   - Each module is a self-contained document combining theory, R code, and exercises.
-   - Includes examples, walkthroughs, and case studies.
+**Core Content:**
 
-2. **Comprehensive R Code Repository:**
-   - Reproducible workflows for each module.
-   - Well-commented; suitable for reuse on real data.
-   - Example datasets (synthetic or public) to run code against.
+*ASOP-25 Alignment:*
+- How GLMMs satisfy ASOP-25 credibility requirements (explicit credibility weights, objective variance component estimation, covariate adjustment)
+- Documentation requirements: data sources, variable definitions, model structure, assumptions, diagnostics, sensitivity analyses, limitations
+- Where GLMMs may face regulatory scrutiny: complexity, software dependency, boundary estimates, rate stability when random effects shift
 
-3. **Glossary & Reference (2–3 pages):**
-   - Definitions of key statistical and actuarial terms.
-   - Quick lookup for formulas and R functions.
+*Regulatory Communication:*
+- Frame GLMMs as "modern credibility methods" --- not "advanced statistics"
+- Provide GLM comparison alongside GLMM results (show improvement, not just complexity)
+- Visualize credibility weights by group (high-volume groups get $Z \approx 1$; low-volume get $Z \approx 0$)
+- Anticipate regulator questions: "Why did Territory X's rate change when its own data didn't change much?"
 
-4. **Capstone Project (Optional but Recommended):**
-   - Apply all modules to a realistic casualty pricing scenario.
-   - Deliverable: Technical report (8–10 pages) + R code.
-   - Covers data exploration → model development → diagnostics → comparison → recommendations.
+*Model Documentation Package:*
+- Checklist: objectives, data, transformations, model structure, assumptions, diagnostics, results, limitations
+- Code reproducibility: Git, R session info, package versions, random seeds
+- Governance: when to refit (annually? quarterly?), monitoring actual vs. expected
+
+*Professional Communication:*
+- Writing technical memos for actuarial peers vs. senior management vs. regulators
+- Effective visualizations for non-technical audiences
+- The distinction between inference goals (estimating variance components) and prediction goals (accurate claim forecasts)
+
+**Key Insight:** Technical mastery is necessary but not sufficient. You must be able to explain and defend your work to people who don't know what a random effect is.
+
+**References:**
+- ASOP-25, "Credibility Procedures" (Actuarial Standards Board)
+- CAS Statement of Principles Regarding Property and Casualty Insurance Ratemaking
+
+**Deliverable:** A model documentation package (3--5 pages) for a GLMM-based rate filing, including model rationale, diagnostics summary, sensitivity analysis, and a 1-page executive summary for a non-technical audience. Mock rate filing exercise.
 
 ---
 
-## Learning Outcomes
+### Module 8: Advanced Topics & Frontiers
 
-Upon completion, you will:
+**Duration:** ~1--2 weeks
+**Objective:** Survey cutting-edge methods with enough depth for the learner to evaluate when they are warranted, but not full mastery. Awareness, not implementation.
 
-- **Theoretically:** Understand GLM, credibility, GLMM foundations, estimation, assumptions, and extensions.
-- **Practically:** Write production-grade R code using `glmmTMB`, `brms`, and related packages.
-- **Professionally:** Align models with ASOP-25 and actuarial standards; communicate findings to stakeholders.
-- **Critically:** Evaluate model fit, compare alternatives, and diagnose problems.
-- **Flexibly:** Adapt GLMMs to complex data structures (zero-inflation, random slopes, hierarchies, measurement error).
-- **Creatively:** Explore emerging extensions (GLMMNet, SIMEX, fairness, causal inference).
+**Core Content (brief overviews with one worked example each):**
 
+*INLA (Integrated Nested Laplace Approximation):*
+- Fast approximate Bayesian inference (10--100x faster than MCMC)
+- When to use: very large datasets, spatial/temporal models, deterministic results needed
+- R-INLA package; comparison to brms on a medium-sized dataset
+
+*Distributional GLMMs:*
+- Model both mean and variance/dispersion as functions of covariates
+- `brms::bf(claims ~ ..., phi ~ region)` syntax
+- Actuarial motivation: claim variance may depend on risk factors
+
+*Regularized Mixed Models (GLMMNet):*
+- Elastic net penalty on fixed effects + random effects for hierarchical structure
+- For high-cardinality predictors (thousands of zip codes, agents)
+- `glmmLasso` R package; GLMMNet ArXiv paper (Yi & Zeng, 2023)
+
+*Measurement Error & SIMEX:*
+- Sources of measurement error in insurance data (self-reported mileage, estimated vehicle values)
+- SIMEX algorithm: add error, refit, extrapolate back to zero error
+- When measurement error is consequential (small signal-to-noise ratio)
+
+*Other Frontiers (1-paragraph overviews):*
+- Gradient boosting + random effects hybrids
+- Spatial random effects (CAR/SAR models for territorial pricing)
+- Causal inference with GLMMs
+- Fair and ethical pricing: auditing random effects for bias
+
+**Key Insight:** GLMMs are not the end of the story. They are a platform from which more specialized methods are built.
+
+**References:**
+- Rue, Martino & Chopin (2009) --- INLA foundational paper
+- Burkner (2018) --- distributional brms models
+- Yi & Zeng (2023), ArXiv:2301.12710 --- GLMMNet
+- Cook & Stefanski (1994) --- SIMEX
+
+**Deliverable:** Quarto notebook with brief worked examples for INLA and distributional GLMMs. 2-page survey document covering the remaining topics.
+
+---
+
+## Capstone Project (Optional but Recommended)
+
+**Duration:** ~2--3 weeks
+
+Apply all skills from Modules 1--7 to a realistic casualty pricing problem.
+
+**Requirements:**
+1. Select a dataset with clear hierarchical structure (`usworkcomp` or `freMTPL2freq` recommended)
+2. Fit at least 5 competing models: GLM, random intercept GLMM, random slopes GLMM, zero-inflated GLMM, Bayesian GLMM
+3. Perform diagnostics on each (DHARMa, posterior predictive checks)
+4. Compare via AIC, LOO-CV, and holdout prediction
+5. Choose a final model and justify the choice
+6. Document assumptions, limitations, and recommendations
+7. Write a 5--8 page technical report with visualizations suitable for an actuarial audience
+
+---
+
+## Assessed Reference List
+
+### Tier 1: Essential (Read These)
+
+| Reference | Scope | Use In |
+|-----------|-------|--------|
+| **CAS Monograph No. 14**, "Practical Mixed Models for Actuaries" | Actuarial GLM/credibility/mixed models bridge | Modules 1--3 |
+| **Zuur et al. (2013)**, *A Beginner's Guide to GLM and GLMM with R* | Applied GLMM guide (ecology examples, translate to insurance) | Modules 4, 6 |
+| **Frees, Young & Luo (1999)**, "A Longitudinal Data Analysis Interpretation of Credibility Models" | The landmark credibility-mixed-models paper | Module 3 |
+| **CAS Monograph No. 5** (Goldburd, Khare, Tevet, 2nd Ed.) | GLM foundations for insurance | Module 1 (prerequisite) |
+| **brms documentation** (Burkner) | Bayesian GLMMs in R | Modules 3, 5 |
+
+### Tier 2: Strongly Recommended (Targeted Chapters)
+
+| Reference | Scope | Use In |
+|-----------|-------|--------|
+| **Buhlmann & Gisler (2005)**, *A Course in Credibility Theory and its Applications* | Credibility theory, Ch. 3 (Bayesian), Ch. 8 (BLUP connection) | Modules 2, 5 |
+| **Antonio & Beirlant (2007)**, "Actuarial Statistics with GLMMs" | Insurance-specific GLMM application (Belgian motor data) | Module 4 |
+| **Frees (2014)**, *Regression Modeling with Actuarial and Financial Applications* | Ch. 8: LMMs for panel data; insurance examples | Modules 3--4 |
+| **Robinson (1991)**, "That BLUP is a Good Thing" | Classic exposition of BLUP = credibility | Module 3 |
+| **DHARMa documentation** (Hartig) | Simulation-based GLMM diagnostics | Module 4, 6 |
+| **McElreath (2020)**, *Statistical Rethinking* (2nd Ed.) | Best Bayesian hierarchical model explanations | Module 5 |
+
+### Tier 3: Reference for Depth
+
+| Reference | Scope | Use In |
+|-----------|-------|--------|
+| **Stroup (2013)**, *Generalized Linear Mixed Models* | GLMM theory (Ch. 2--4, 8, 10) | Module 4 |
+| **McCulloch, Searle & Neuhaus (2008)**, *Generalized, Linear, and Mixed Models* | Henderson's equations, mathematical derivations | Module 4 |
+| **Gelman & Hill (2007)**, *Data Analysis Using Regression and Multilevel/Hierarchical Models* | Interpretation and visualization | Module 5 |
+| **Ohlsson & Johansson (2010)**, *Non-Life Insurance Pricing with GLMs* | Ch. 7--8: GLMMs, credibility in insurance context | Modules 3--4 |
+| **De Jong & Heller (2008)**, *GLMs for Insurance Data* | Tweedie theory (Ch. 7) | Module 1 (optional) |
+
+### Online Resources
+
+- Michael Clark, "Mixed Models with R" (m-clark.github.io) --- best free tutorial, excellent shrinkage visualizations
+- Ben Bolker's GLMM FAQ (bbolker.github.io/mixedmodels-misc/glmmFAQ.html) --- essential troubleshooting reference
+- glmmTMB vignettes (CRAN) --- zero-inflation, covariance structures, extensions
+- Richard McElreath's "Statistical Rethinking" lectures (YouTube) --- best conceptual explanations
+
+---
+
+## Datasets
+
+### Primary Datasets
+
+| Dataset | Source | Modules | Why |
+|---------|--------|---------|-----|
+| `freMTPL2freq` / `freMTPL2sev` | `CASdatasets` | 1, 4, 6 | 678k policies, rich covariates, regional hierarchy, high zero proportion |
+| `usworkcomp` | `CASdatasets` | 3, 5, Capstone | Workers' comp with state hierarchy; natural for credibility exercises |
+| Synthetic GLMM data | Generated in-notebook | 2, 3, 4 | Known $\tau^2$ for calibration; controlled experiments |
+
+### Secondary Datasets
+
+| Dataset | Source | Modules | Why |
+|---------|--------|---------|-----|
+| `ausautoBI8999` | `CASdatasets` | 6 | Severity modeling, temporal structure |
+| `ausprivauto0405` | `CASdatasets` | 6 | Multi-line; Tweedie GLMM potential |
+| Frees' Singapore Auto | SOA / Frees (2014) | 3--4 | Panel data with textbook solutions |
+
+### Synthetic Data Strategy
+
+- **Module 2:** Small portfolio (3--5 classes, 4--5 periods) for manual credibility calculations
+- **Module 3:** Reuse Module 2 data for GLMM comparison; add a Gaussian LMM version for exact BLUP = credibility verification
+- **Module 4:** Poisson GLMM with known $\tau^2$ (50 groups, 20 obs/group) for estimation calibration
+- **Module 6:** Zero-inflated Poisson with structural zeros (known zero-inflation probability) and random slopes with known variance
+
+### Synthetic Data Generation Tools
+
+- Base R: `rnorm()`, `rpois()`, `rgamma()` with hierarchical structure
+- `simstudy` or `fabricatr` packages for declarative multilevel data simulation
+- `brms::simulate()` for generating data from a fitted Bayesian model
+
+---
+
+## Key R Packages
+
+| Package | Purpose | Modules |
+|---------|---------|---------|
+| `glmmTMB` | Frequentist GLMMs (primary) | 3--6 |
+| `lme4` | LMMs; AGQ for validation | 3--4 |
+| `brms` | Bayesian GLMMs via Stan | 3, 5--6 |
+| `DHARMa` | Simulation-based GLMM diagnostics | 4, 6 |
+| `tidybayes` | Tidy posterior extraction | 5 |
+| `performance` | ICC, R-squared, model quality checks | 4 |
+| `actuar` | Classical credibility (`cm()` function) | 2 |
+| `CASdatasets` | Actuarial datasets | 1, 3, 6, Capstone |
+| `loo` | LOO-CV for Bayesian model comparison | 5--6 |
+
+---
+
+## Conventions
+
+- **Notebooks** (Quarto `.qmd`, Jupyter `.ipynb`) are the primary deliverable format --- theory (LaTeX math), code, and narrative together.
+- **Model caching:** Fitted models are saved as `.rds` (frequentist) or via `brms::brm(file = ...)` (Bayesian) in `Models/` to avoid refitting during rendering. Always check for cached models before refitting.
+- **Code style:** R follows the [Tidyverse style guide](https://style.tidyverse.org/); Python follows the [Google style guide](https://google.github.io/styleguide/pyguide.html).
+- **Parallel MCMC:** `brms` models use `future::plan(multicore, workers = 4)` for parallel chains.
+- **Notebook length:** Keep each notebook under ~50 lines of substantive code; split longer analyses into multiple notebooks.
+
+---
 
 ## Success Criteria
 
 You have successfully completed the project when you can:
 
-1. Explain the relationship between classical credibility and modern GLMMs to a peer.
-2. Fit, diagnose, and compare competing GLMM specifications in R for a realistic pricing problem.
-3. Interpret random effects, variance components, and predictions in actuarial terms.
-4. Defend a chosen model based on statistical rigor and actuarial appropriateness.
-5. Extend GLMMs to handle non-standard data (zero-inflation, hierarchies, measurement error).
-6. Communicate findings clearly to actuarial and regulatory audiences.
-
----
+1. Derive the BLUP-credibility equivalence for the Gaussian LMM and explain where it extends to (and breaks down for) GLMMs.
+2. Fit, diagnose, and compare competing GLMM specifications in R for a realistic pricing problem using both frequentist and Bayesian tools.
+3. Explain the difference between conditional and marginal predictions and know when to use each.
+4. Interpret variance components, random effects, and credibility weights in actuarial terms.
+5. Defend a chosen model to regulators with proper documentation, diagnostics, and sensitivity analyses.
+6. Handle zero-inflation, overdispersion, and random slopes when the data warrants it.
+7. Evaluate when Bayesian methods, INLA, or regularized mixed models would add value over standard frequentist GLMMs.
