@@ -3,7 +3,9 @@
     "allow": [
       "mcp__sequential-thinking__sequentialthinking",
       "Skill(plannotator-review)",
-      "Bash(rv:*)"
+      "Bash(rv:*)",
+      "mcp__claude_ai_Context7__resolve-library-id",
+      "WebSearch"
     ]
   }
 }

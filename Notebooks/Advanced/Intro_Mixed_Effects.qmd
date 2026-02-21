@@ -1,0 +1,409 @@
+---
+title: "Introduction to Mixed Effects Models"
+format: html
+---
+
+
+```{r}
+library(fs)
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(brms)
+library(glmmTMB)
+library(bbmle)
+
+spiders <- read.table(
+    file = fs::path("Data", "raw", "Spiders.txt"),
+    header = TRUE,
+    dec = "."
+)
+spiders <- spiders |> 
+    dplyr::filter(!spiders$Plot %in% c(4, 9, 11, 14, 13))
+spiders$Plot <- forcats::as_factor(spiders$Plot)
+```
+
+## Basic Linear Models
+
+$$
+\begin{align}
+\text{shannon}_i \sim N(\mu_i, \sigma^2) \\
+\mu_i = \beta_1 + \beta_2 \times \text{HerbLayer}_i
+\end{align}
+$$
+
+
+```{r}
+spiders |> 
+    ggplot(aes(x = HerbLayer, y = Hlog10)) +
+        geom_point() +
+        geom_smooth(method=lm) +
+        labs(x = "Percentage of herb layer", y = "Shannon Index") +
+        theme_minimal()
+```
+
+Get the residuals from the simple bivariate linear regression model and plot against Plot.
+
+```{r}
+Mod0 <- lm(Hlog10 ~ HerbLayer, data = spiders)
+
+spiders$bivlmresid <- Mod0$residuals
+
+spiders |> 
+    ggplot(aes(x = Plot, y = bivlmresid)) +
+        geom_boxplot() +
+        scale_x_discrete() +
+        geom_hline(aes(yintercept = 0)) +
+        labs(x = "Plot", y = "residuals") +
+        theme_minimal()
+```
+
+There appears to be a _Plot_ effect in the residuals.
+
+We could take the following approach:
+
+$$
+\begin{align}
+&\text{shannon}_i \sim N(\mu_i, \sigma^2) \\
+&\mu_i = \beta_1 + \beta_2 \times \text{HerbLayer}_i + \beta_{2+i} \text{Plot}_i
+\end{align}
+$$
+
+```{r}
+Mod1 <- lm(Hlog10 ~ HerbLayer + Plot, data = spiders)
+
+# create prediction data for separate Plots
+plot_dat <- spiders |> 
+    dplyr::group_by(Plot) |> 
+    dplyr::summarise(
+        HerbLayer_min = min(HerbLayer),
+        HerbLayer_max = max(HerbLayer)
+    ) |> 
+    dplyr::rowwise() |> 
+    dplyr::mutate(
+        prediction_data = list(
+            data.frame(
+                HerbLayer = seq(from = HerbLayer_min, to = HerbLayer_max, length.out = 10),
+            fPlot = Plot)
+        )
+    ) |> 
+    tidyr::unnest(prediction_data)
+plot_dat <- plot_dat |> 
+    dplyr::mutate(
+        predicted = predict(Mod1, newdata = plot_dat)
+    )
+
+spiders |> 
+    ggplot(aes(x = HerbLayer, y = Hlog10)) +
+        geom_point() +
+        geom_smooth(method=lm, se = FALSE) +
+        geom_line(
+            data = plot_dat, 
+            aes(x = HerbLayer, y = predicted, color = fPlot)) +
+        labs(x = "Percentage of herb layer", y = "Shannon Index") +
+        theme_minimal()
+```
+
+```{r}
+drop1(Mod1, test = "F")
+```
+
+## Linear Mixed Effects Models
+
+_Plot_ here is the _random effect_.
+
+$$
+\begin{align}
+&\text{shannon}_{ij} = \beta_1 + \beta_2 \times \text{HerbLayer}_{ij} + a_i + \epsilon_{ij} \\
+&a_i \sim N(0, \sigma^2_{\text{Plot}}) \\
+&\epsilon_{ij} \sim N(0, \sigma^2)
+\end{align}
+$$
+
+Site _j_ in Plot _i_, and $i = 1, \ldots, 26$.
+
+Original `lme4` syntax...
+
+```{r}
+Mod2 <- lmer(Hlog10 ~ HerbLayer + (1 | Plot), data = spiders)
+print(summary(Mod2))
+```
+
+As a glmmTMB Model
+
+```{r}
+Mod2b <- glmmTMB(
+    formula = Hlog10 ~ HerbLayer + (1 | Plot),
+    data = spiders,
+    family = gaussian(),
+    REML = TRUE
+)
+
+print(summary(Mod2b))
+```
+
+```{r}
+Betas <- fixef(Mod2)
+SE <- sqrt(diag(vcov(Mod2)))
+pval <- 2*pnorm(-abs(Betas  / SE))
+Output <- cbind(Betas,SE, pval)
+print(Output)
+```
+
+```{r}
+MinMax <- range(spiders$HerbLayer)
+MyData <- data.frame(
+    HerbLayer = seq(from = MinMax[1], to = MinMax[2], length = 10)
+)
+X <- model.matrix(~ HerbLayer, data = MyData)
+Fit <- X %*% fixef(Mod2)
+
+a <- ranef(Mod2)$Plot$'(Intercept)'
+```
+
+```{r}
+# Extract random effects
+a <- ranef(Mod2)$Plot$'(Intercept)'
+
+# Create prediction data for overall fixed effect
+overall_data <- data.frame(
+    HerbLayer = seq(from = min(spiders$HerbLayer), to = max(spiders$HerbLayer), length.out = 10)
+)
+overall_data <- overall_data |> 
+    dplyr::mutate(
+        predicted = as.numeric(model.matrix(~HerbLayer, data = overall_data) %*% fixef(Mod2)),
+        panel = "Fixed Effect Only"
+    )
+
+# predictions for random effects
+random_data <- spiders |> 
+    dplyr::group_by(Plot) |> 
+    dplyr::summarise(
+        HerbLayer_min = min(HerbLayer),
+        HerbLayer_max = max(HerbLayer)
+    ) |> 
+    dplyr::mutate(
+        plot_index = row_number(),
+        prediction_data = purrr::map2(HerbLayer_min, HerbLayer_max, ~data.frame(HerbLayer = seq(from = .x, to = .y, length.out = 10))),
+        fPlot = Plot
+    ) |> 
+    tidyr::unnest(prediction_data)
+
+random_data <- random_data |> 
+    dplyr::mutate(
+        predicted = purrr::map2_dbl(HerbLayer, plot_index,
+            function(hl, idx) {
+                X <- model.matrix(~hl, data = data.frame(HerbLayer = hl))
+                as.numeric(X %*% fixef(Mod2) + a[idx])
+            }),
+            panel = "With Random Effects"
+    )
+
+# combine data
+plot_data <- bind_rows(overall_data, random_data)
+
+# create the two-panel plot
+ggplot(plot_data) +
+    geom_point(data = spiders, aes(x = HerbLayer, y = Hlog10), alpha = 0.6) +
+    geom_line(aes(x = HerbLayer, y = predicted, color = fPlot)) +
+    facet_wrap(~panel, scales = "free_x") +
+    labs(x = "Percentage of herb layer", y = "Shannon index") +
+    theme_minimal() +
+    theme(legend.position = "none")
+```
+
+$$
+\begin{align}
+&\text{shannon}_{ij} = \beta_1 + \beta_2 \times \text{HerbLayer}_{ij} + \beta_3 \times \text{GroundVeg}_{ij} + \beta_4 \times \text{Litter}_{ij} + a_i + \epsilon_{ij} \\
+&a_i \sim N(0, \sigma^2_{\text{Plot}}) \\
+&\epsilon_{ij} \sim N(0, \sigma^2)
+\end{align}
+$$
+
+```{r}
+DataNorm <- function(x) { (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)}
+
+spiders <- spiders |> 
+    dplyr::mutate(
+        HerbLayerc = DataNorm(HerbLayer),
+        GroundVegc = DataNorm(GroundVeg),
+        Litterc = DataNorm(Litter)
+    )
+```
+
+```{r}
+Mod3 <- lmer(Hlog10 ~ HerbLayerc + GroundVegc + Litterc + (1 | Plot), data = spiders)
+print(summary(Mod3))
+```
+
+$$
+\begin{aligned}
+&H_{i j}=\underbrace{\beta_0}_{\text {common intercept }}+\beta_1 \text { HerbLayerc }_{i j}+\beta_2 \text { GroundVegc }_{i j}+\beta_3 \text { Litterc }_{i j}+\underbrace{a_i}_{\text {Plot-specific intercept shift }}+\varepsilon_{i j}\\ 
+&\quad a_i \sim N\left(0, \sigma_a^2\right)\\
+& \varepsilon_{i j} \sim N\left(0, \sigma^2\right)
+\end{aligned}
+$$
+
+**Two kinds of predictions**
+
+- **Population-level (marginal) prediction** (exclude random effects):
+
+$\hat{H}_{i j}^{\mathrm{marg}}=\hat{\beta}_0+\hat{\beta}_1 x_{1 i j}+\hat{\beta}_2 x_{2 i j}+\hat{\beta}_3 x_{3 i j}$
+
+`predict(m, re.form = ~0)`
+
+```{r}
+predict(Mod3, re.form = ~0)
+```
+
+- **Subject-specific (conditional) prediction** (include the plot’s random intercept):
+
+$\hat{H}_{i j}^{\text {cond }}=\hat{H}_{i j}^{\text {marg }}+\hat{a}_i$
+
+`predict(m)`
+
+```{r}
+predict(Mod3)
+```
+
+With grand-mean centering, $\beta_0$ is the expected outcome at the average predictor values, and $a_i$ is the plot’s deviation from that.
+
+```{r}
+E3 <- resid(Mod3)
+F3 <- fitted(Mod3)
+```
+
+`fitted(Mod3)` gives the full model fitted value (Fixed + Random) effects:
+
+$\hat{\beta_1} + \hat{\beta_2} \times \text{HerbLayer}_{ij} + \hat{\beta_3} \times \text{GroundVeg}_{ij} + |hat{\beta_4} \times \text{Litter}_{ij} + \hat{a_i}$
+
+```{r}
+Betas <- fixef(Mod3) # β’s (common intercept & slopes)
+X <- model.matrix(Mod3)
+FitManual <- X %*% Betas
+RE <- ranef(Mod3)$Plot$'(Intercept)' # a_i (random intercepts)
+AllRE <- RE[as.numeric(spiders$Plot)]
+Coefs <- coef(Mod3) # β’s combined with a_i; the intercept column is β0 + a_i
+```
+
+
+```{r}
+ResidRaw <- spiders$Hlog10 - FitManual - AllRE
+
+data.frame(
+    x = spiders$Plot,
+    y = E3/attr(VarCorr(Mod3), "sc")) |> 
+    ggplot(aes(x = x, y = y)) +
+        geom_boxplot() +
+        scale_x_discrete() +
+        geom_hline(aes(yintercept = 0)) +
+        labs(x = "Plot", y = "residuals") +
+        theme_minimal()
+```
+
+```{r}
+Mod5 <- lmer(Hlog10 ~ HerbLayerc + (1 + HerbLayerc | Plot), data = spiders)
+print(summary(Mod5))
+```
+
+```{r}
+a <- ranef(Mod5)$Plot$'(Intercept)'
+b <- ranef(Mod5)$Plot$HerbLayerc
+```
+
+```{r}
+df5 <- spiders |> 
+    dplyr::group_by(Plot) |> 
+    dplyr::summarise(
+        HerbLayer_min = min(HerbLayer),
+        HerbLayer_max = max(HerbLayer)
+    ) |> 
+    dplyr::mutate(
+        plot_index = row_number(),
+        prediction_data = purrr::map2(HerbLayer_min, HerbLayer_max, ~data.frame(HerbLayer = seq(from = .x, to = .y, length.out = 10)))
+    ) |> 
+    tidyr::unnest(prediction_data)
+```
+
+
+## Bayesian Approach with BRMS
+
+```{r}
+
+Mod4 <- brm(Hlog10 ~ HerbLayerc + GroundVegc + Litterc + (1 | Plot), data = spiders, family = gaussian())
+```
+
+```{r}
+plot(Mod4)
+
+
+```
+
+
+```{r}
+stancode(Mod4)
+```
+
+## Estimation
+
+$$
+\begin{aligned}
+&y_{i j}=\underbrace{\beta_0+\beta_1 x_{i j}}_{\text {fixed }}+\underbrace{b_i}_{\text {random intercept }}+\varepsilon_{i j} \\
+&\quad b_i \sim \mathcal{N}\left(0, \tau^2\right) \\
+&\varepsilon_{i j} \sim \mathcal{N}\left(0, \sigma^2\right)
+\end{aligned}
+$$
+
+```{r}
+syn_data <- readr::read_csv(fs::path("Data", "synthetic_lmm_data.csv"))
+```
+
+```{r}
+df <- syn_data |> 
+    dplyr::select(-b_effect, -epsilon)
+
+df |> 
+    ggplot(aes(x = x, y = y)) +
+        geom_point() +
+        geom_smooth(method = "lm", se = FALSE, fullrange = TRUE) +
+        theme_minimal()
+```
+
+
+```{r}
+df |> 
+    ggplot(aes(x = x, y = y, colour = factor(Group))) +
+        geom_point() +
+        geom_smooth(aes(group = Group), method = "lm", se = FALSE, fullrange = TRUE) +
+        theme_minimal()
+```
+
+
+```{r}
+mod_00 <- lm(y ~ x, data = df)
+summary(mod_00)
+```
+
+
+```{r}
+mod_01 <- glmmTMB(y ~ x + (1 | Group), data = df, REML = TRUE)
+summary(mod_01)
+print(ranef(mod_01))
+print(fixef(mod_01))
+print(performance::icc(mod_01, by_group = TRUE))
+```
+
+```{r}
+int <- 1.8865
+slope <- 0.7014
+g1_int <- 1.8865 - 0.1220562
+g2_int <- 1.8865 + 0.1220562
+
+df |> 
+    ggplot(aes(x = x, y = y, colour = factor(Group))) +
+        geom_point() +
+        geom_abline(aes(intercept = int, slope = slope), linetype = 2, color = "grey") +
+        geom_abline(aes(intercept = g1_int, slope = slope), color = "red") +
+        geom_abline(aes(intercept = g2_int, slope = slope), color = "lightblue") +
+        theme_minimal()
+```

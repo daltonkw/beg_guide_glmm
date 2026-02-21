@@ -8,3 +8,11 @@ __pycache__/
 *.Rproj
 Models/
 Theory/
+.Renviron
+env
+
+*.html
+*figure-html
+*.css
+*.woff
+*.js

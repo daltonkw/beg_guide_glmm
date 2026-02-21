@@ -37,7 +37,8 @@ quarto render Notebooks/<name>.qmd
 Context/          — Project description and syllabus (reference docs for Agents)
 Data/raw/         — Source datasets (txt, xls); used by notebooks
 Data/             — Also contains synthetic_lmm_data.csv (generated)
-Notebooks/        — Quarto (.qmd) notebooks (R-based) and one Jupyter (.ipynb) for PyMC
+Notebooks/PMMA/   — Track 1: "Actuarial Bridge" (following CAS Monograph 14)
+Notebooks/Advanced/ — Track 2: "Modern Frontier" (Advanced theory and complex features)
 Models/           — Serialized fitted model objects (.rds); gitignored
 Models/workcomp/  — Workers' comp model variants (brms/glmmTMB)
 R/GLMGLMM_RCode/ — Reference R scripts from Zuur et al. textbook (Chapters 1-7)

@@ -44,4 +44,7 @@ dependencies = [
     "ggdist",
     "future",
     "gt",
+    "GLMsData",
+    "statmod",
+    "actuar",
 ]

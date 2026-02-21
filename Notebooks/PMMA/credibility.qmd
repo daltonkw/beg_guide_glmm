@@ -1,0 +1,3193 @@
+
+# Credibility Theory {#sec-credibility-theory}
+
+```{r}
+#| include: false
+#| message: false
+
+library(tidyverse)
+library(patchwork)
+library(kableExtra)
+library(GLMsData)
+library(statmod)
+library(actuar)
+library(lme4)
+```
+
+```{r}
+#| include: false
+
+options(width = 70)
+source("buehlmann-gisler-calculations.R")
+```
+
+
+## Introduction
+
+Consider the following scenario: you are preparing
+the renewal offer for a policyholder who has been
+insured for a number of years.
+While there are many approaches to setting next year's
+premium, consider the
+following two positions:
+
+1. Base it entirely on the historical
+claims experience of this policyholder---that is,
+use their average claims experience.
+1. Completely ignore this policyholder's own claims
+experience and use the company's average claims
+experience for all similar policyholders or the industry
+loss history.
+
+Both positions are extreme.
+In the first one, you are in essence saying that
+your policyholder's experience is completely
+trustworthy for setting next year's premium.
+Maybe your policyholder is so large and their
+claims experience so stable that, barring any
+extraordinary events, next year's claims will be
+spot on with their historical record.
+In adopting the second position, you acknowledge
+that this policyholder's claim experience is
+not trustworthy (whether good, bad, or mixed), and
+so you'll look for the overall average claims for the
+entire portfolio of policies to which this policyholder
+belongs or to industry loss experience.
+
+These two extreme positions are not the only
+alternatives.
+There is some middle ground, where we can blend
+some of the policyholder's historical experience
+together with the experience of the block of business
+to which this policyholder belongs.
+Credibility theory is the body of knowledge, tools,
+and techniques that allows us to blend the two
+extreme positions into a far better estimate for
+our policyholder's next year's premium.
+
+@venterCredibility1996 puts it as follows:
+
+> *Credibility*, simply put, is the weighting together
+> of different estimates to come up with a combined
+> estimate.
+> For instance, an insured's own experience might
+> suggest a different premium from that in the manual.
+> These are two different estimates of the needed premium,
+> which can be combined using credibility concepts to
+> yield an adjusted premium.
+
+And we can summarize it in a formula as 
+$$
+  \text{AP} = Z \times \text{EP} + (1 - Z) \times \text{MP},
+$$ {#eq-credibility-adjusted-premium}
+where $\text{AP}$ is the adjusted premium,
+$\text{EP}$ is the policyholder's own experience premium, $\text{MP}$
+is the manual premium (also known as the
+*complement of credibility*), and $Z \in [0,1]$ is the
+credibility factor.
+The adjusted premium is also known as the 
+*credibility premium*.
+Even though @eq-credibility-adjusted-premium is a
+deceptively simple interpolation formula between
+$\text{EP}$ and $\text{MP}$, it has far-reaching 
+consequences and applications.
+
+Note that as $Z$ approaches 1, the adjusted premium
+gets closer to the policyholder's own experience premium.
+And as $Z$ approaches zero, the adjusted premium
+converges to the manual premium.
+Thus, if the insured's own experience is highly
+credible ($Z$ close to 1), we would assign an
+adjusted premium close to their own experience.
+If the experience is not credible, then we would
+assign a premium close to the premium suggested by
+the manual.
+
+The key question is how to calculate the credibility
+factor based on observed data.
+An intuitive understanding is that the **more extensive**
+the observed data is and the **less it fluctuates**,
+then the closer the credibility factor will be to 1.
+
+@mowbrayHowExtensivePayroll1914 introduced credibility theory a little
+over 100 years ago in his paper 
+"How Extensive a Payroll is Necessary to
+Give a Dependable Pure Premium?"
+The title succinctly encapsulated
+one of the main problems facing casualty actuaries at
+that time.
+In the intervening time, credibility theory has developed
+tremendously, and today there are many approaches and
+directions.
+Practicing actuaries are most familiar with two main
+methods of calculating credibility:
+
+1. Limited Fluctuation, or classical, credibility
+2. Greatest Accuracy, or B&uuml;hlmann, credibility
+
+We will not present any results regarding limited fluctuation
+credibility as it is not connected with LMMs.
+Readers wanting a review of that branch of credibility can
+consult Chapter 5 of @herzogIntroductionCredibilityTheory2010.
+In the next section, we begin our exploration of
+B&uuml;hlmann credibility.
+
+
+
+## Greatest Accuracy Credibility {#sec-greatest-accuracy-credibility}
+
+Greatest accuracy credibility, also known as  *B&uuml;hlmann credibility*, was developed by
+@buhlmannExperienceRatingCredibility1967a,
+who derived the optimal credibility factors 
+by minimizing a squared error in the context of a Bayesian
+statistical model.
+
+We will start with a basic model and expand to a more 
+complex treatment.
+While the basic model is too simple to be effectively used
+in practice, it is important for understanding how more
+complex models work.
+Our development closely follows the presentations in
+@straubNonlifeInsuranceMathematics1997
+and 
+@kaasModernActuarialRisk2009.
+
+To keep things concrete, consider the following example
+(a slightly modified version of problem 5.84 from
+@klugmanLossModelsData1998).
+We have a portfolio of policyholders with three,
+$(J = 3)$, different risk classes and we have observed
+their claims experience over the last four, $T = 4$, years.
+Let $X_{jt}$ be the experience for risk class
+$j = 1, 2, \dots, J$ in time period $t = 1, 2, \dots, T$.
+@tbl-balanced-example
+shows the data, and
+@fig-balanced-example
+provides a graphical representation.
+We would like to estimate the experience each risk class
+will have during the next time period $T = 5$.
+
+```{r}
+#| include: false
+
+dta <- tibble(class = factor(rep(1:3, each = 4),
+                             levels = 1:3),
+              time = rep(1:4, times = 3),
+              value = c(625, 675, 600, 700,
+                        750, 800, 650, 800,
+                        900, 700, 850, 950))
+```
+
+```{r}
+#| include: false
+
+dtb <- pivot_wider(dta,
+                   names_from = time,
+                   values_from = value)
+```
+
+```{r}
+#| echo: false
+#| label: tbl-balanced-example
+#| tbl-cap: "Claims experience for a portfolio of three risk classes that have been observed over four time periods."
+
+kbl(dtb,
+    booktabs = TRUE,
+    col.names = c("Class", "1", "2", "3", "4"),
+    align = "ccccc") |>
+  add_header_above(c(" " = 1, "Time Period" = 4)) |>
+  kable_classic()
+```
+
+```{r}
+#| echo: false
+#| label: fig-balanced-example
+#| fig-cap: "Claims experience for a portfolio of three risk classes that have been observed over four time periods.  What should the estimate, for each risk class, be in time period five?"
+
+ggplot(data = dta,
+       mapping = aes(x = time,
+                     y = value,
+                     group = class,
+                     pch = class,
+                     color = class)) +
+  geom_line(color = "gray") +
+  geom_point(size = 2) +
+  xlim(1,5) +
+  annotate("text",
+           x = rep(5,3),
+           y = c(834.375, 750, 665.625),
+           label = rep("?", 3)) +
+  labs(x = "Observation Period",
+       y = "Claims Experience",
+       color = "Class",
+       pch = "Class")
+```
+
+Looking closely at
+@fig-balanced-example
+and focusing on each risk class at a time, we could say the
+following:
+if we continue observing these risk classes for
+many periods (and assuming that these risks are
+stable over time), each one of them would fluctuate around a mean 
+claim cost, say, $\bar{X}_j = (\sum_{t = 1}^T X_{jt})/T$.
+For example, looking at risk class $j = 3$ (square symbol), which starts in 
+period 1 with a value of 900, it seems plausible that its 
+long-term average cost might be around $\bar{X}_3 = 850$.
+For risk class $j = 2$ (triangle symbol) with claim cost $X_{21} = 750$ at
+time $t = 1$,
+its long-term average might be close to $\bar{X}_2 = 750$ and 
+for risk class $j = 1$ (circle symbol), starting with $X_{11} = 625$,
+that long-term average may equal $\bar{X}_1 = 650$.
+The portfolio as a whole (ignoring risk class information) 
+also has a long-term average claim
+cost that, in this case, would be around $\bar{X} = 750$.
+
+From the experience that we see in
+@fig-balanced-example,
+we might be inclined to say that these three risk classes
+have **different** long-term claim averages.
+Is there evidence in this data that this is the case?
+How might we quantify such evidence?
+
+One way to quantify the evidence for or against different
+long-term averages would be to use a statistical model for
+this data.
+To that end, the experience $X_{jt}$ for risk class
+$j = 1, 2, \dots, J$ in time period $t = 1, 2, \dots, T$
+could be decomposed as
+$$
+  X_{jt} = m_j + \epsilon_{jt},
+$$
+where $m_j$ is the mean for risk class $j$ and 
+$\epsilon_{jt}$ represents an error term.
+We assume that the error terms are independent and
+identically distributed with 
+$\epsilon_{jt} \in N(0, \sigma^2)$.
+Hence, all the $X_{jt}$ are independent and 
+$N(m_j, \sigma^2)$ distributed, with possibly
+unequal means $m_j$, but all with equal variance
+$\sigma^2$, across all risk classes.
+We can test for the equality of all group means via
+an analysis of variance.
+
+The analysis of variance entails computing two statistics
+that will be relevant for credibility calculations.
+The first is the *sum of squares between*,
+$$
+ \text{SSB} = \sum_{j = 1}^J T (\bar{X}_j - \bar{X})^2.
+$$
+This statistic has $J - 1$ degrees of freedom.
+The second statistic is the *sum of squares within*,
+$$
+  \text{SSW} = \sum_{j = 1}^J \sum_{t = 1}^T (X_{jt} - \bar{X}_j)^2,
+$$
+and it has $J(T-1)$ degrees of freedom.
+
+Under the assumption that the group means $m_j$ are
+equal (this is the null hypothesis), the random variable SSB has a mean equal to 
+$(J-1)\sigma^2$ and the random variable SSW has a mean equal
+to $J(T-1)\sigma^2$.
+The ratio of these means follows a Fisher distribution with
+$J-1$ and $J(T-1)$ degrees of freedom:
+$$
+  F = \frac{\text{MSB}}{\text{MSW}} =
+        \frac{\text{SSB}/(J-1)}{\text{SSW}/(J(T-1))}.
+$$
+
+For our example, we can calculate the sum of squares
+between (SSB) and the mean sum of squares between (MSB) as follows:
+
+```{r}
+J <- length(levels(dta$class))
+Tm <- length(unique(dta$time))
+X.jt <- dta$value
+
+Xj.bar <- tapply(X.jt, dta$class, mean)
+X.bar <- mean(X.jt)
+SSB <- Tm * sum((Xj.bar - X.bar)^2)
+MSB <- SSB/(J - 1)
+```
+
+The sum of squares within (SSW) and the mean sum of squares
+within (MSW) are calculated as follows:
+
+```{r}
+SSW <- sum((X.jt - rep(Xj.bar, each = Tm))^2)
+MSW <- SSW / (J * (Tm - 1))
+```
+
+Their values are as follows:
+
+```{r}
+c("SSB" = SSB, "MSB" = MSB, "SSW" = SSW, "MSW" = MSW)
+```
+
+And so we have that the $F$-statistic, `F.value`, its 
+critical value at 5%, `z.star`, and its $p$-value are as follows:
+
+```{r}
+round(c("F.value" =  MSB / MSW,
+        "z.star" = qf(0.95, J - 1, J * (Tm - 1)),
+        "p-value" = pf(MSB/MSW, J - 1, J * (Tm - 1),
+                       lower.tail = FALSE)), 4)
+```
+
+Therefore, in this case, we have evidence that at least two
+of the means, $m_1, m_2, m_3$ are not equal (we are 
+able to reject the null hypothesis of equal means), and
+thus we would consider our portfolio to be heterogeneous.
+
+Had the $F$-statistic been below the critical value, then
+we would not have been able to reject the null hypothesis
+that all the means are equal.
+Our data would not have strong evidence of being heterogeneous.
+
+The calculations we just did for the sum of squares between,
+the sum of squares within, and the $F$-statistic can be easily done
+by fitting a linear model to the data and creating an
+analysis of variance table.
+
+```{r}
+fm <- lm(value ~ class, data = dta)
+anova(fm)
+```
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Consider the claims experience for class 3, which has
+values equal to
+
+```{r}
+dta$value[dta$class == 3]
+```
+
+Suppose we subtract the same amount $m$ from each of
+these values to bring them closer to the values for 
+classes 1 and 2.
+
+What is the smallest value of $m$ such that we would 
+no longer consider our portfolio heterogeneous?
+In other words, what value of $m$ would yield an 
+$F$-statistic equal to its critical value at the
+5% level?
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+We are looking for the smallest value of $m$ such that
+the $F$-statistic for our portfolio is equal to 4.256.
+To search for the value of $m$, we can construct a
+function of one argument, $m$, so that its minimum value
+is achieved at the value of $m$ that we are looking for.
+
+For a given value of $m$, we would need to perform the
+following steps:
+
+1. Decrease all the values for class 3 by $m$.
+1. Fit a linear model to the data.
+1. Compute the $F$-statistic for this data, `F.value`.
+1. Return the square of the difference between `F.value` and
+the given critical value.
+
+The following function implements these steps.
+The argument `z.star` is the target critical value we 
+want to achieve, `dt` is the data frame containing our
+portfolio, and `cls` is the class we want to modify.
+
+```{r}
+f <- function(m, z.star, dt, cls) {
+  idx <- dt$class == cls
+  dt$value[idx] <- dt$value[idx] - m
+  fm <- lm(value ~ class, data = dt)
+  F.value <- anova(fm)[1,4]
+  ans <- (F.value - z.star)^2
+  return(ans)
+}
+```
+
+Now that we have our function, we can search for its
+minimum value via `optimize()`.
+The first argument is the function we want to minimize,
+and the second argument provides an interval to conduct the
+search.
+The remaining named arguments are needed by our function
+`f` to do its calculations.
+Based on
+@fig-balanced-example,
+it seems reasonable to assume that $m$ should be in the
+interval from zero to 100.
+
+```{r}
+optimize(f, c(0, 100),
+         z.star = qf(0.95, 2, 9), 
+         dt = dta, 
+         cls = 3)
+```
+
+Therefore, when we reduce the experience for class 3
+by $m = 38.41$ we obtain a portfolio that we would 
+consider homogeneous.
+
+Note that in the analysis of variance table shown before
+the exercise, it is the residual sum of squares, 
+namely, the sum of squares within, that remains constant 
+regardless of the value of $m$.
+It is the sum of squares between, that is, the `class` sum of
+squares, that gets smaller as $m$ increases.
+Thus, the denominator of the $F$-statistic is fixed while
+the numerator gets smaller.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Consider the claims experience for class 3, which has
+values equal to
+
+```{r}
+dta$value[dta$class == 3]
+```
+
+Suppose we subtract the same amount $m$ from each of
+these values to bring them closer to the values for 
+classes 1 and 2.
+
+What is the smallest value of $m$ such that we would 
+no longer consider our portfolio heterogeneous?
+In other words, what value of $m$ would yield an 
+$F$-statistic equal to its critical value at the
+5% level?
+
+:::
+
+::: {.pmmsol}
+
+We are looking for the smallest value of $m$ such that
+the $F$-statistic for our portfolio is equal to 4.256.
+To search for the value of $m$, we can construct a
+function of one argument, $m$, so that its minimum value
+is achieved at the value of $m$ that we are looking for.
+
+For a given value of $m$, we would need to perform the
+following steps:
+
+1. Decrease all the values for class 3 by $m$.
+1. Fit a linear model to the data.
+1. Compute the $F$-statistic for this data, `F.value`.
+1. Return the square of the difference between `F.value` and
+the given critical value.
+
+The following function implements these steps.
+The argument `z.star` is the target critical value we 
+want to achieve, `dt` is the data frame containing our
+portfolio, and `cls` is the class we want to modify.
+
+```{r}
+f <- function(m, z.star, dt, cls) {
+  idx <- dt$class == cls
+  dt$value[idx] <- dt$value[idx] - m
+  fm <- lm(value ~ class, data = dt)
+  F.value <- anova(fm)[1,4]
+  ans <- (F.value - z.star)^2
+  return(ans)
+}
+```
+
+Now that we have our function, we can search for its
+minimum value via `optimize()`.
+The first argument is the function we want to minimize,
+and the second argument provides an interval to conduct the
+search.
+The remaining named arguments are needed by our function
+`f` to do its calculations.
+Based on
+@fig-balanced-example,
+it seems reasonable to assume that $m$ should be in the
+interval from zero to 100.
+
+```{r}
+optimize(f, c(0, 100),
+         z.star = qf(0.95, 2, 9), 
+         dt = dta, 
+         cls = 3)
+```
+
+Therefore, when we reduce the experience for class 3
+by $m = 38.41$ we obtain a portfolio that we would 
+consider homogeneous.
+
+Note that in the analysis of variance table shown before
+the exercise, it is the residual sum of squares, 
+namely, the sum of squares within, that remains constant 
+regardless of the value of $m$.
+It is the sum of squares between, that is, the `class` sum of
+squares, that gets smaller as $m$ increases.
+Thus, the denominator of the $F$-statistic is fixed while
+the numerator gets smaller.
+
+:::
+
+:::
+
+```{r}
+#| include: false
+
+rm(dtb, fm, J, Tm, SSB, MSB, SSW, MSW,
+   X_jt, X.bar, Xj.bar, f)
+```
+
+In the preceding analysis, we have treated the risk class means
+$m_j$ as fixed but unknown.
+If our portfolio is heterogeneous, we may try to find a way
+to relate these means to other information we may have 
+about the risk classes.
+In a practical application, we may have thousands of risk
+classes.  Think about a classification system for
+automobile insurance with variables such as age, gender,
+socioeconomic status, years licensed, prior claims,
+garage location, make and model of car, safety features,
+engine size, and so forth.
+Many of these cells would be common and have plenty of data,
+but many would also be rare and have little data.
+Our linear model would have to estimate parameters for all
+these risk categories, and that would present a significant
+estimation problem.
+Moreover, as the number of risk classes increases, so does
+the number of parameters that we need to estimate.
+
+Another way to look at our portfolio would be to assume
+that the risk class mean $m_j$ is a random draw from
+a distribution.
+Thus, we would decompose our data as follows:
+$$
+  X_{jt} = \mu + \Xi_j + \epsilon_{jt}, \quad
+  j = 1, 2, \dots, J, \quad t = 1, 2, \dots, T,
+$$ {#eq-simple-buehlmann-model}
+where $\Xi_j$ (the capital version of the letter $\xi$)
+and $\epsilon_{jt}$ are independent random 
+variables with mean zero and 
+$$
+  \text{Var}[\Xi_j] = \tau^2, \qquad 
+  \text{Var}[\epsilon_{jt}] = \sigma^2.
+$$
+Note that from
+@eq-simple-buehlmann-model
+we have
+$$
+\mathbb{E}[X_{jt}] = \mu \quad\text{and}\quad
+\text{Var}[X_{jt}] = \tau^2 + \sigma^2;
+$$
+that is, the variance of each cell is equal to the sum of the
+variance for each component in
+@eq-simple-buehlmann-model.
+
+In terms of our portfolio we can interpret the above model
+as follows:  the overall mean is given by $\mu$, and it is
+the expected value of claim costs for a contract picked at
+random from our portfolio.
+The term $\Xi_j$ is a random variable, and it represents a 
+deviation from the grand mean $\mu$ specific to risk 
+class $j$.
+The conditional mean of $X_{jt}$ given that $\Xi_j = \xi$ is
+equal to $\mu + \xi$.
+This would be the long-term average for risk class $j$.
+The variance of $\Xi_j$ is equal to $\tau^2$, and so this
+parameter controls how spread out individual risk classes are
+from the overall mean.
+A large value of $\tau^2$ would lead to a heterogeneous
+portfolio.
+A small value of $\tau^2$ suggests a homogeneous portfolio
+where all risk classes have similar long-term means.
+The last component, $\epsilon_{jt}$, gives us a deviation
+for risk class $j$ from its long-term mean $\mu + \xi$ in
+year $t$.
+It represents the fluctuation of the experience around its
+long-term average.
+
+It is important to note that this model has three parameters:
+the overall mean $\mu$, the variance component $\tau^2$, and
+another variance component $\sigma^2$.
+These three parameters are independent of the number of risk
+classes in our portfolio.
+We may have just three risk classes, as in the example above,
+but we could also have hundreds or thousands of risk classes
+and we would still need to estimate only three parameters.
+
+As
+@fig-balanced-example depicts 
+with the question marks at time $t = 5$, we are interested
+in estimating the expected value of the unobserved random variables
+$X_{j,T+1}$.
+While there may be many ways of estimating that value,
+we will require it to be a linear combination of the observed data
+that we have, namely, $X_{11}, X_{12}, \dots, X_{JT}$.
+We also want our linear combination to have the same expected
+value as $X_{j,T+1}$ (we want our estimator to be unbiased)
+and its squared error to be the smallest among all possible 
+linear combinations.
+
+The following theorem 
+[@kaasModernActuarialRisk2009, Theorem 8.2.2]
+tells us that the best estimate for the next period
+is a credibility-weighted average between $\bar{X}_j$
+and $\bar{X}$, where the weight depends on the
+number of observed periods $T$ and the variance
+components $\tau^2$ and $\sigma^2$.
+
+::: {#thm-balanced-buehlmann-homogeneous-estimator}
+
+## Balanced B&uuml;hlmann; homogeneous estimator
+
+Assume that the claim figures $X_{jt}$ for contract $j$ in
+period $t$ can be written as the sum of stochastically independent
+components, as follows:
+$$
+  X_{jt} = \mu + \Xi_j + \epsilon_{jt}, \quad
+  j = 1, 2, \dots, J, \quad t = 1, 2, \dots, T+1,
+$$ {#eq-balanced-buehlmann-model}
+where the random variables $\Xi_j$ are independent and
+identically distributed with mean $\mathbb{E}[\Xi_j] = 0$
+and $\text{Var}[\Xi_j] = \tau^2$ and the random 
+variables $\epsilon_{jt}$ are also independent and identically
+distributed with $\mathbb{E}[\epsilon_{jt}] = 0$ and 
+$\text{Var}[\epsilon_{jt}] = \sigma^2$ for all $j$ and $t$.
+Furthermore, assume that the variables $\Xi_j$ are independent
+of the variables $\epsilon_{jt}$.
+
+Under these conditions, the homogeneous linear combination
+$g_{11} X_{11} + \dots + g_{JT} X_{JT}$ that is the best 
+unbiased predictor of $X_{j,T+1}$ in the sense of minimal 
+mean squared error
+$$
+  \mathbb{E}[(X_{j,T+1} - g_{11} X_{11} - \dots - g_{JT} X_{JT})^2]
+$$ {#eq-balanced-buehlmann-mse}
+equals the credibility premium
+$$
+  z \bar{X}_j + (1 - z)\bar{X},
+$$ {#eq-balanced-buehlmann-credibility-premium}
+where 
+$$
+  z = \frac{\tau^2 T}{\tau^2 T + \sigma^2} = \frac{T}{T + {\sigma^2}/{\tau^2}}
+$$
+is the resulting best credibility factor (which in this case
+is the same for all $j$);
+$$
+  \bar{X} = \frac{1}{JT}\sum_{j = 1}^J\sum_{t = 1}^T X_{jt}
+$$ {#eq-overall-mean}
+is the collective estimator of $\mu$; and
+$$
+  \bar{X}_j = \frac{1}{T} \sum_{t = 1}^T X_{jt}
+$$ {#eq-mean-by-class}
+is the individual estimator of $m_j$.
+
+:::
+
+Nonparametric estimators of $\tau^2$, $\sigma^2$,
+and $\mu$ are developed in Section 5.5.1 of 
+@klugmanLossModelsData1998.
+The overall mean $\mu$ can be estimated via $\bar{X}$.
+To estimate $\sigma^2$, also known as the expected value
+of the process variance (EVPV), consider first the following
+estimate of the variance for risk class $j$:
+$$
+  \hat{\sigma}^2_j = \frac{1}{T-1}
+    \sum_{t=1}^T (X_{jt} - \bar{X}_j)^2.
+$$ {#eq-estimate-variance-risk-class-j}
+We can take the average of these estimates,
+$$
+  \hat{\sigma}^2 = \frac{1}{J} \sum_{j=1}^J \hat{\sigma}_j^2 =
+    \frac{1}{J(T-1)} \sum_{j=1}^J 
+      \sum_{t=1}^T (X_{jt} - \bar{X}_j)^2,
+$$ {#eq-estimate-EVPV}
+to obtain the EVPV
+(see Equation 5.75 in @klugmanLossModelsData1998).
+
+To estimate the variance of the hypothetical means (VHM),
+we use the relationship
+[@klugmanLossModelsData1998, 465]
+$$
+  \text{Var}[\bar{X}_j] = \tau^2 + \frac{\sigma^2}{T}.
+$$ {#eq-variance-X-bar-j}
+The left-hand side is equal to the mean sum of squares between (MSB),
+and thus our estimator for $\tau^2$ is
+(Equation 5.76 in @klugmanLossModelsData1998)
+$$
+  \hat{\tau}^2 = \frac{1}{J-1}\sum_{j=1}^J 
+    (\bar{X}_j - \bar{X})^2 - \frac{1}{TJ(T-1)}
+    \sum_{j=1}^{J} \sum_{T=1}^T (X_{jt} - \bar{X}_j)^2.
+$$ {#eq-estimate-VHM}
+
+All three estimators $\hat{\mu}, \hat{\tau}^2, \text{and }\hat{\sigma}^2$
+are unbiased.
+Note that the estimator for $\hat{\tau}^2$ is the difference
+between two expressions, and so in practice it may yield a
+negative answer.
+This is clearly nonsense as we are estimating a variance
+component.
+In such cases, it is common to set its value equal to zero
+and to take the credibility factor as $z = 0$.
+Intuitively, this makes sense.
+If the variance of the hypothetical means is zero (or 
+close to zero), then all risk classes have very similar
+individual means that do not differ from the overall mean.
+
+Using the data for the example, we can implement the
+preceding formulas.
+There are many ways to organize the data necessary for
+these calculations, and we will take an approach that
+closely corresponds to the preceding formulas even though
+it may not be the best approach for a large-scale
+project.
+Thus, our first step will be to set some key
+variables, such as $J$, $T$, and $X_{jt}$,
+and sort the data $X_{jt}$ by class and time period.
+
+```{r}
+J <- length(levels(dta$class))
+Tm <- length(unique(dta$time))
+cls <- dta$class
+
+o <- order(dta$class, dta$time)
+Xjt <- dta$value[o]
+```
+
+First, we calculate the overall mean, $\bar{X}$, and
+the mean for each risk class, $\bar{X}_j$, using
+@eq-overall-mean and @eq-mean-by-class.
+
+```{r}
+X.bar <- mean(Xjt)
+Xj.bar <- tapply(Xjt, cls, mean)
+```
+
+Next we calculate $\hat{\sigma}^2_j$ 
+(@eq-estimate-variance-risk-class-j) and the 
+EVPV,
+$\hat{\sigma}^2$, using @eq-estimate-EVPV.
+
+```{r}
+sigmaj.sq <- tapply(
+  (Xjt - rep(Xj.bar, each = Tm))^2, cls, sum) / (Tm - 1)
+sigma.sq <- mean(sigmaj.sq)
+```
+
+Next comes the calculation of $\text{Var}[\bar{X}_j]$
+via @eq-variance-X-bar-j.
+
+```{r}
+Var.Xj.bar <- sum((Xj.bar - X.bar)^2) / (J - 1)
+```
+
+And, finally, the calculation of the variance of the 
+hypothetical means (@eq-estimate-VHM):
+
+```{r}
+tau.sq <- Var.Xj.bar - sigma.sq / Tm
+```
+
+With all of these values, we have that our credibility
+factor is equal to 
+$$
+  Z = \frac{T}{T + \hat{\sigma}^2/\hat{\tau}^2} = 
+      \frac{4}{4 + 6250 / 8437.5} = 0.84375,
+$$ {#eq-BB-credibility-factor}
+and the credibility premiums will be equal to
+$$
+  Z \bar{X}_j + (1 - Z) \bar{X}
+$$
+yielding the following credibility-weighted premiums:
+
+```{r}
+Z <- Tm / (Tm + sigma.sq / tau.sq)
+Z * Xj.bar + (1 - Z) * X.bar
+```
+Adding these forecasts to our earlier graph gives us
+@fig-balanced-example-next-year.
+
+```{r}
+#| echo: false
+#| label: fig-balanced-example-next-year
+#| fig-cap: "Claims experience for a portfolio of three risk classes that have been observed over four years.  The credibility-weighted estimate for the next year is shown with a colored line segment."
+
+tb <- tibble(class = factor(c(1,2,3,1,2,3)),
+             time = c(4, 4, 4, 5, 5, 5),
+             value = c(700, 800, 950, 665.625, 750, 834.375))
+ggplot(data = dta,
+       mapping = aes(x = time,
+                     y = value,
+                     group = class,
+                     pch = class,
+                     color = class)) +
+  annotate("text",
+           x = rep(5,3),
+           y = c(834.375, 750, 665.625),
+           label = rep("?", 3)) +
+  geom_line(color = "gray") +
+  geom_line(data = tb,
+            mapping = aes(x = time,
+                          y = value,
+                          group = class)) +
+  geom_point() +
+  geom_point(data = subset(tb, time == 5),
+             mapping = aes(x = time,
+                           y = value,
+                           pch = class,
+                           color = class)) +
+  xlim(1,5) +
+  labs(x = "Observation Year",
+       y = "Claims Experience",
+       pch = "Class",
+       color = "Class") 
+```
+
+The above calculations for the *balanced* B&uuml;hlmann
+model and other credibility models have been coded into
+the `cm()` function of the `actuar` R package.
+We illustrate its use next.
+
+The data is required to be in a different format where
+the time variable is expressed through different columns
+in the dataset and the rows represent the different
+contracts or classes.
+
+```{r}
+dtb <- pivot_wider(dta,
+                   names_from = time,
+                   values_from = value)
+dtb
+```
+
+In this case, columns 2 through 5 represent our data.
+The balanced B&uuml;hlmann model, `BB`, can be fit as
+follows, and here is a summary of the fitted object:
+
+```{r}
+BB <- cm( ~ class,
+          data = dtb,
+          ratios = 2:5)
+summary(BB)
+```
+
+Here the collective premium is $\bar{X};$ the variance
+of the hypothetical means $\tau^2$ is labeled
+"Between class variance"; and the expected value of the
+process variance $\sigma^2$ is the 
+"Within class variance."
+In the section "Detailed premiums," we see that the
+individual means $\bar{X}_j$ are in the second
+column; the next column, "Weight," has the number of 
+observed time periods $T$; and the
+credibility factor and the credibility premiums
+(the last two columns) also
+match our previous calculations.
+
+```{r}
+#| include: false
+
+rm(cls, J, o, sigma.sq, sigmaj.sq, tau.sq, Tm,
+   Var.Xj.bar, X.bar, Xj.bar, Xjt, Z, tb, BB, dtb)
+```
+
+
+The form of the credibility factor may not look 
+particularly nice,
+$$
+  Z = \frac{T}{T + {\sigma}^2/{\tau}^2},
+$$
+but it has some very appealing and intuitive properties:
+
+1. Since all elements involved are positive,
+   the credibility factor is also positive. Moreover,
+   regardless of the values of $T$, $\sigma^2$, or
+   $\tau^2$, its value is always between zero and 1.
+1. As the number of periods of observation $T$
+   increases, the credibility factor increases
+   toward 1.
+1. As the EVPV,
+   $\sigma^2$, decreases, the credibility factor
+   increases toward 1.
+1. As the VHM,
+   $\tau^2$, increases, the credibility factor increases
+   toward 1.
+
+All these make sense. The more observations you have
+about your insureds, all else the same, the more confident
+you should be about their experience.
+If the process variance is very small, then you should also
+be more confident about their experience.
+A small process variance means that the insured's claims
+experience does not fluctuate too much.
+And, finally, if the VHM
+is large, then you know that your insureds have
+different means, and so you should be more confident about
+using their own experience versus imposing the overall
+average experience.
+
+The B&uuml;hlmann credibility model has another extremely important
+property. To calculate the next period's premiums we only need to
+estimate two parameters: the EVPV, also known as the within-class variance,
+$\sigma^2$, and the VHM, also known as the between-class variance, $\tau^2$.
+This is always the case regardless of the number of
+levels the class variable might have.
+
+Unfortunately, the balanced B&uuml;hlmann model is
+not always applicable in practice.
+One shortcoming is that in the decomposition of the
+experience $X_{jt}$, 
+$$
+  X_{jt} = m + \Xi_j + \epsilon_{jt}
+$$
+we have assumed that the deviation $\Xi_j$ from the
+overall mean $m$ for each risk class $j$ has the same
+variance, namely, $\text{Var}[\Xi_j] = \tau^2$.
+In other words, all risk classes have, in essence, been
+measured with the same precision.
+In practice, this may not be a good assumption.
+
+Imagine that the experience $X_{jt}$ is actually the
+average over individual policyholders that belong in
+the $j$th risk class.
+In this case, the variance across risk classes will
+not be the same since risk classes will, most likely,
+have different numbers of policyholders.
+Another reason for not having equal variances,
+even if we did have the same number of policyholders,
+comes about by having policyholders of different sizes
+within the same risk class.
+Consider a small supermarket versus a large one.
+
+In these cases, we would want to consider the experience
+$X_{jt}$ along with a weight $w_{jt}$ such that the
+bigger the weight, the smaller the variance and vice versa.
+In the next section, we present the B&uuml;hlmann--Straub
+model, which takes care of these two issues.
+
+
+## The B&uuml;hlmann--Straub Model {#sec-buehlmann-straub-model}
+
+In the last section, we saw that the balanced B&uuml;hlmann
+credibility model assumes that each observation in risk
+class $j$ and time $t$, $X_{jt}$, has the same variance,
+and this may not always reflect reality.
+
+Here, we introduce the B&uuml;hlmann--Straub
+model, which incorporates different weights into the 
+balanced B&uuml;hlmann model.
+We start with the same decomposition of the observations
+$X_{jt}$ as in the previous section:
+$$
+  X_{jt} = m + \Xi_j + \epsilon_{jt}, 
+    \quad j = 1, 2, \dots, J, t = 1, 2, \dots, T+1,
+$$ {#eq-buehlmann-straub-model}
+where the unobservable risk components $\Xi_j$ (deviations
+from the overall mean $m$ for risk class $j$) are independent
+and identically distributed with mean zero, and the components
+$\epsilon_{jt}$ (deviations across time from the long-term 
+average of risk class $j$) are also independent and identically
+distributed with mean zero.
+Plus, we assume that $\Xi_j$ and $\epsilon_{jt}$ are independent
+of each other.
+
+Next, we keep the variance of $\Xi_j$ the same as in the
+previous section,
+$$
+  \text{Var}[\Xi_j] = \tau^2,
+$$
+but we change the assumption for the variance of the 
+components $\epsilon_{jt}$ to include the weights
+$w_{jt}$ to
+$$
+  \text{Var}[\epsilon_{jt}] = \frac{\sigma^2}{w_{jt}}.
+$$ {#eq-buehlmann-straub-variance}
+
+
+Note that if we set each of the weights $w_{jt}$ equal to 1---that is,
+let $w_{jt} = 1$ for all $j$ and $t$---then
+we are back to the balanced B&uuml;hlmann model.
+
+Just as in the balanced B&uuml;hlmann model, we would like
+to find the best homogeneous *unbiased* linear predictor
+$\sum g_{jt} X_{jt}$ of the risk premium $m + \Xi_j$.
+The following theorem from 
+@kaasModernActuarialRisk2009 [Theorem 8.4.1, 215]
+provides the answer using the following quantities and
+notation.
+A filled circle, $\bullet$, in an index location means we
+are summing across that index.
+An open circle, $\circ$, in an index location means
+we are creating a weighted average over that index with weights
+provided by the appropriate $w_{jt}$.
+
+The first expression below sums across all time periods, and so
+we put a filled circle on the time index.
+The second expression sums across both indices, time and risk class,
+and so two filled circles are used.
+$$
+  w_{j\bullet} = \sum_{t=1}^T w_{jt} \quad\text{and}\quad
+  w_{\bullet\bullet} = \sum_{j=1}^J \sum_{t=1}^T w_{jt}
+$$ {#eq-BS-weights}
+
+Also note that the first expression above has a value for
+each value of the index $j$---therefore we can think of it as a
+vector of length $J$.
+In contrast, the second expression is a single number since
+we have collapsed along both indices.
+
+The next expression shows us how to compute the $J$ credibility
+factors.
+Note that the formula is the same as in the balanced B&uuml;hlmann
+model with $T$ replaced by the sum of the weights across time---that is, $w_{j\bullet}$.
+Therefore, if all the weights are set equal to 1, then we have
+that $w_{j\bullet} = T$ for all $j$, and so this model
+becomes the balanced B&uuml;hlmann
+model and all $J$ credibility factors $Z_j$ are identical.
+
+$$
+  Z_j = \frac{\tau^2\, w_{j\bullet}}{\tau^2\, w_{j\bullet} + \sigma^2} =
+        \frac{w_{j\bullet}}{w_{j\bullet} + \sigma^2/\tau^2} 
+        \quad\text{and}\quad
+  Z_\bullet = \sum_{j = 1}^J Z_j
+$$ {#eq-BS-credibility-factors}
+
+Finally, the experience $X_{jt}$ can be first summarized by taking a
+weighted average along the time dimension, leaving us with one
+average for each risk class.
+The second expression then takes the average of the $J$ averages
+to compute an overall weighted average.
+The last expression is the weighted average of the individual
+risk class averages, but using the credibility factors as weights.
+Keep in mind that the overall average $X_{\circ\circ}$
+is, in general, not equal to the credibility-weighted average $X_z$.
+
+$$
+  X_{j\circ} = \sum_{t=1}^T\frac{w_{jt}}{w_{j\bullet}} X_{jt}
+  \quad\text{and}\quad
+  X_{\circ\circ} = \sum_{j=1}^J\frac{w_{j\bullet}}{w_{\bullet\bullet}} X_{j\circ}
+  \quad\text{and}\quad
+  X_{z} = \sum_{j=1}^J\frac{Z_{j}}{Z_{\bullet}} X_{j\circ}
+$$ {#eq-BS-summary-experience}
+
+::: {#thm-buehlmann-straub-homogeneous-estimator}
+## B&uuml;hlmann--Straub model
+
+The mean squared error best homogeneous unbiased predictor
+$\sum_{it} g_{it} X_{it}$ of the risk premium $m + \Xi_j$
+in model @eq-buehlmann-straub-model, that is, the solution to
+the following restricted minimization problem,
+
+\begin{gather}
+  \min_{g_{it}} \mathbb{E}\left[ \left(m + \Xi_j - 
+    \sum_{it} g_{it} X_{it} \right)^2 \right] \\
+    \text{subject to } \mathbb{E}[m + \Xi_j] = 
+      \sum_{it} g_{it} \mathbb{E}\left[ X_{it} \right],
+\end{gather}
+
+is the following credibility estimator:
+$$
+  Z_j X_{j\circ} + (1 - Z_j) X_{z}.
+$$ {#eq-BS-credibility-estimator}
+:::
+
+@thm-buehlmann-straub-homogeneous-estimator
+has the same structure as the
+balanced B&uuml;hlmann theorem.
+Both results tell us that the next period's pure
+premium can be estimated as the weighted average
+of a risk class's average experience $X_{j\circ}$
+and the overall average experience for the whole
+portfolio $X_z$.
+
+Whereas in the balanced B&uuml;hlmann model, the overall average
+experience is equal to the simple average across all
+observations, namely,
+$$
+  \bar{X} = \frac{\displaystyle \sum_{jt} X_{jt}}{J \cdot T},
+$$
+
+in the B&uuml;hlmann--Straub model, the overall
+experience should be taken as the credibility-weighted
+risk class experience $X_z$, that is,
+
+$$
+  X_z = \sum_{j=1}^J \frac{Z_j}{Z_{\bullet}} X_{j\circ}.
+$$
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+In the B&uuml;hlmann--Straub model, set all weights $w_{jt}$
+equal to 1 and show that you reproduce the results for the
+balanced B&uuml;hlmann model.
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+By letting $w_{jt} = 1$ for all $j = 1, 2, \dots, J$ and
+$t = 1, 2, \dots, T$, we have that 
+
+$$
+  w_{j\bullet} = \sum_{t=1}^T w_{jt} = T,
+  \quad\text{and}\quad
+  X_{j\circ} = \sum_{t=1}^T\frac{w_{jt}}{w_{j\bullet}} X_{jt} = 
+  \frac{1}{T} \sum_{t=1}^T X_{jt},
+$$
+
+and the credibility factors become
+
+$$
+  Z_j = \frac{\tau^2\, w_{j\bullet}}{\tau^2\,w_{j\bullet} + \sigma^2} = 
+        \frac{w_{j\bullet}}{w_{j\bullet} + \sigma^2/\tau^2} = 
+        \frac{T}{T + \sigma^2/\tau^2}
+$$
+
+for all $j$.
+Therefore, 
+
+$$
+  Z_\bullet = \sum_{j=1}^J Z_j = 
+            \frac{JT}{T + \sigma^2/\tau^2}.
+$$
+
+Finally, substituting all the different pieces into $X_z$ gives us
+
+$$
+  X_z = \sum_{j=1}^J \frac{Z_j}{Z_\bullet} X_{j\circ} = 
+        \sum_{j=1}^J \frac{\frac{T}{T + \sigma^2/\tau^2}}{\frac{JT}{T + \sigma^2/\tau^2}} X_{j\circ} =
+        \sum_{j=1}^J \frac{1}{J} 
+        \left( \frac{1}{T} \sum_{t=1}^T X_{jt} \right) = 
+        \frac{1}{JT}\sum_{j=1}^J \sum_{t=1}^T X_{jt} = \bar{X},
+$$
+
+showing that when the weights in the B&uuml;hlmann--Straub model
+are all equal to 1, we revert back to the balanced B&uuml;hlmann
+model.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+In the B&uuml;hlmann--Straub model, set all weights $w_{jt}$
+equal to 1 and show that you reproduce the results for the
+balanced B&uuml;hlmann model.
+
+:::
+
+::: {.pmmsol}
+
+By letting $w_{jt} = 1$ for all $j = 1, 2, \dots, J$ and
+$t = 1, 2, \dots, T$, we have that 
+
+$$
+  w_{j\bullet} = \sum_{t=1}^T w_{jt} = T,
+  \quad\text{and}\quad
+  X_{j\circ} = \sum_{t=1}^T\frac{w_{jt}}{w_{j\bullet}} X_{jt} = 
+  \frac{1}{T} \sum_{t=1}^T X_{jt},
+$$
+
+and the credibility factors become
+
+$$
+  Z_j = \frac{\tau^2\, w_{j\bullet}}{\tau^2\,w_{j\bullet} + \sigma^2} = 
+        \frac{w_{j\bullet}}{w_{j\bullet} + \sigma^2/\tau^2} = 
+        \frac{T}{T + \sigma^2/\tau^2}
+$$
+
+for all $j$.
+Therefore, 
+
+$$
+  Z_\bullet = \sum_{j=1}^J Z_j = 
+            \frac{JT}{T + \sigma^2/\tau^2}.
+$$
+
+Finally, substituting all the different pieces into $X_z$ gives us
+
+$$
+  X_z = \sum_{j=1}^J \frac{Z_j}{Z_\bullet} X_{j\circ} = 
+        \sum_{j=1}^J \frac{\frac{T}{T + \sigma^2/\tau^2}}{\frac{JT}{T + \sigma^2/\tau^2}} X_{j\circ} =
+        \sum_{j=1}^J \frac{1}{J} 
+        \left( \frac{1}{T} \sum_{t=1}^T X_{jt} \right) = 
+        \frac{1}{JT}\sum_{j=1}^J \sum_{t=1}^T X_{jt} = \bar{X},
+$$
+
+showing that when the weights in the B&uuml;hlmann--Straub model
+are all equal to 1, we revert back to the balanced B&uuml;hlmann
+model.
+
+:::
+
+:::
+
+For the B&uuml;hlmann--Straub model we also need estimators
+for the model parameters $m$, $\sigma^2$, and $\tau^2$.
+These estimators are also based on the 
+*sum of squared errors within* and *sum of squared errors between* we
+have seen before, but incorporating the weights for each
+observation, namely,
+$$
+  \text{SSW} = \sum_{jt} w_{jt}(X_{jt} - X_{j\circ})^2,
+$$
+and
+$$
+  \text{SSB} = \sum_{jt} w_{j\bullet}(X_{j\circ} - X_{\circ\circ})^2.
+$$
+@fig-between-within-risk
+shows one way to think about the between- and within-risk variances.
+The blue circles represent the actual observations $X_{jt}$ we have 
+available. The large circles on the axis labeled
+$X_{1\circ}, X_{2\circ},$ and $X_{3\circ}$ represent an estimate
+of the hypothetical means for groups 1, 2, and 3, respectively.
+For each group, we have the deviations, shown as blue arrows, between 
+the estimated hypothetical mean $X_{j\circ}$ and its actual 
+observations $X_{jt}$.
+The magnitude of those differences squared results in the *within* sum of
+squared errors, $\text{SSW}$.
+
+From the estimated hypothetical means $X_{j\circ}$ we compute an
+overall mean, shown as a filled red circle, $X_{\circ\circ}$.
+This represents the collective average for the entire portfolio of risks.
+The square of the deviations between the overall mean and the hypothetical
+means, shown in the upper section of
+@fig-between-within-risk,
+forms the *between* sum of squared errors, $\text{SSB}$.
+
+::: {.content-visible unless-format="pdf"}
+
+![Graphical representation of the within-risk and between-risk deviations. The small open circles represent the actual observations available. The large circles on the horizontal axis are the estimated hypothetical means, and the filled red circle is the overall average. The blue arrows represent the within-risk deviations, and the red arrows are the between-risk deviations.](between-within-risk.svg){#fig-between-within-risk width=80%}
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+```{tikz}
+#| echo: false
+#| label: fig-between-within-risk
+#| fig-cap: "Graphical representation of the within-risk and between-risk deviations. The small open circles represent the actual observations available. The large circles on the horizontal axis are the estimated hypothetical means, and the filled red circle is the overall average. The blue arrows represent the within-risk deviations, and the red arrows are the between-risk deviations."
+
+\begin{tikzpicture}
+  \draw[->] (-5.6, 0)--(5.6, 0);
+  \draw[fill,blue!10!white] (-5.2, 0.5) rectangle (5.6, 3.05);
+  \draw[fill,red!10!white] (-5.2, 3.75) rectangle (5.6, 5.25);
+  
+  \pgfsetshortenend{4pt};
+  \draw (-3.2, 0) circle[radius=5pt];
+  \draw[gray] (-3.2, 0)--(-3.2, 6);
+  \draw[->,blue] (-3.2, 0.75)--(-4, 0.75);
+  \draw[blue] (-4, 0.75) circle[radius=3pt];
+  \draw[->,blue] (-3.2, 1.25)--(-2.8, 1.25);
+  \draw[blue] (-2.8, 1.25) circle[radius=3pt];
+  \draw[->,blue] (-3.2, 1.75)--(-3.6, 1.75);
+  \draw[blue] (-3.6, 1.75) circle[radius=3pt];
+  \draw[->,blue] (-3.2, 2.25)--(-4.8, 2.25);
+  \draw[blue] (-4.8, 2.25) circle[radius=3pt];
+  \draw[->,blue] (-3.2, 2.75)--(-2, 2.75);
+  \draw[blue] (-2, 2.75) circle[radius=3pt];
+  
+  \draw (1.6, 0) circle[radius=5pt];
+  \draw[gray] (1.6, 0)--(1.6, 6);
+  \draw[->,blue] (1.6, 0.75)--(2.4, 0.75);
+  \draw[blue] (2.4, 0.75) circle[radius=3pt];
+  \draw[->,blue] (1.6, 1.25)--(2.8, 1.25);
+  \draw[blue] (2.8, 1.25) circle[radius=3pt];
+  \draw[->,blue] (1.6, 1.75)--(-0.4, 1.75);
+  \draw[blue] (-0.4, 1.75) circle[radius=3pt];
+  \draw[->,blue] (1.6, 2.25)--(1.2, 2.25);
+  \draw[blue] (1.2, 2.25) circle[radius=3pt];
+  \draw[->,blue] (1.6, 2.75)--(2, 2.75);
+  \draw[blue] (2, 2.75) circle[radius=3pt];
+  
+  \draw (4, 0) circle[radius=5pt];
+  \draw[gray] (4, 0)--(4, 6);
+  \draw[->,blue] (4, 1.25)--(3.2, 1.25);
+  \draw[blue] (3.2, 1.25) circle[radius=3pt];
+  \draw[->,blue] (4, 1.75)--(5.2, 1.75);
+  \draw[blue] (5.2, 1.75) circle[radius=3pt];
+  \draw[->,blue] (4, 2.25)--(4.8, 2.25);
+  \draw[blue] (4.8, 2.25) circle[radius=3pt];
+  \draw[->,blue] (4, 2.75)--(2.8, 2.75);
+  \draw[blue] (2.8, 2.75) circle[radius=3pt];
+  
+  \pgfsetshortenend{0pt};
+  \draw[gray] (0, 0)--(0, 6);
+  \draw[->,red] (0, 4)--(-3.2, 4);
+  \draw[->,red] (0, 4.5)--(1.6, 4.5);
+  \draw[->,red] (0, 5)--(4, 5);
+  \draw[fill,red] (0, 0) circle[radius=5pt];
+  
+  \pgfsetshortenend{6pt};
+  \pgfsetshortenstart{6pt};
+  \node at (0, -1) {$X_{\circ\circ}$};
+  \draw[->] (0, -1)--(0, 0);
+  \node at (-3.2, -1) {$X_{3\circ}$};
+  \draw[->] (-3.2, -1)--(-3.2, 0);
+  \node at (1.6, -1) {$X_{1\circ}$};
+  \draw[->] (1.6, -1)--(1.6, 0);
+  \node at (4, -1) {$X_{2\circ}$};
+  \draw[->] (4, -1)--(4, 0);
+  
+  \pgfsetshortenend{4pt};
+  \pgfsetshortenstart{8pt};
+  \node at (-1.6, 1.75) {$X_{jt}$};
+  \draw[->] (-1.6, 1.75)--(-2.8, 1.25);
+  \draw[->] (-1.6, 1.75)--(-0.4, 1.75);
+  \draw[->] (-1.6, 1.75)--(-2, 2.75);
+  
+  \node[align=center] at (-6.6, 1.75) {Within-risk\\ deviations};
+  \node[align=center] at (-6.6, 4.5) {Between-risk\\ deviations};
+\end{tikzpicture}
+```
+
+:::
+
+@thm-estimators-BS-parameters
+[@kaasModernActuarialRisk2009, Theorem 8.4.2, 218]
+tells us how to calculate unbiased estimators for $m$, $\sigma^2$,
+and $\tau^2$.
+
+::: {#thm-estimators-BS-parameters}
+## Unbiased parameter estimates
+
+In the B&uuml;hlmann--Straub model, the following statistics
+are unbiased estimators of the corresponding model parameters:
+
+\begin{align}
+  \hat{m} &= X_{\circ\circ} \\
+  \hat{\sigma}^2 &= \frac{1}{J(T-1)} 
+    \sum_{jt} w_{jt}(X_{jt} - X_{j\circ})^2 \\
+  \hat{\tau}^2 &= \frac{\sum_j w_{j\bullet} (X_{j\circ} - 
+    X_{\circ\circ})^2 - (J-1) \hat{\sigma}^2}{w_{\bullet\bullet} - 
+    \sum_j w_{j\bullet}^2 / w_{\bullet\bullet}}
+\end{align}
+
+:::
+
+Note that the estimator for $\tau^2$ is the difference
+between two expressions, and so it is possible that in
+applying the model the computed value will be negative.
+In this case, most practitioners will set the value
+of this parameter to zero.
+
+To illustrate the B&uuml;hlmann--Straub model we will
+generate a synthetic portfolio and compute predictions
+for the next period.
+Our discussion follows the development in
+@kaasModernActuarialRisk2009 [Example 8.4.5, 220].
+
+Let's set up our portfolio with $J = 100$ risk classes
+and $T = 5$ years of observations that follow the 
+model in @eq-buehlmann-straub-model with the following
+parameters: $m = 80$, $\tau^2 = 64$, and $\sigma^2 = 100$.
+We will set up weights ranging from 0.5 to 1.5 and simulate
+the observations $X_{jt} = m + \Xi_j + \epsilon_{jt}$ with
+both $\Xi_j$ and $\epsilon_{jt}$ as normal random variables
+with mean zero and variance $\tau^2$ and $\sigma^2/w_{jt}$,
+respectively.
+The code to generate the portfolio appears in
+@lst-sim-BS-model.
+
+```{r}
+#| lst-label: lst-sim-BS-model
+#| lst-cap: "Simulation of the B&uuml;hlmann--Straub model."
+
+J <- 100; Tm <- 5
+j <- as.factor(rep(1:J, each = Tm))
+
+m <- 80
+t2 <- 64
+s2 <- 100
+
+set.seed(12094851)
+w.jt <- 0.5 + runif(J * Tm)
+X.jt <- m + rep(rnorm(J, 0, sqrt(t2)), each = Tm) +
+            rnorm(J * Tm, 0, sqrt(s2/w.jt))
+
+dta <- tibble(risk = j,
+              X.jt = X.jt,
+              W.jt = w.jt)
+write_csv(dta, "BS-simulated-data.csv")
+```
+
+```{r}
+#| include: false
+
+rm(dta)
+```
+
+
+
+Before embarking on credibility calculations we should check
+whether our portfolio is homogeneous.
+If it is homogeneous, then we do not need to apply credibility
+and we could estimate the next year's experience by the overall
+weighted average.
+To check, we do an analysis of variance.
+
+```{r}
+(av <- anova(lm(X.jt ~ j, weights = w.jt)))
+```
+
+From the above output we can immediately tell that our
+portfolio is heterogeneous; the risk classes differ
+from each other.
+The $F$-value statistic is too large given the 99 and 
+400 degrees of freedom (the 5% critical value would
+be `r round(qf(0.95, 99, 400), 4)`).
+
+We can also see immediately from the analysis of variance output 
+that the estimated value of $\sigma^2$ is equal to 
+
+```{r}
+(s2.hat <- av[2,3])
+```
+
+The estimator for the overall mean $m$ is the overall
+weighted average for the data.
+
+```{r}
+(m.hat <- X.cc <- sum(w.jt * X.jt) / sum(w.jt))
+```
+
+Finally, we need to implement the calculation for
+the estimator of $\tau^2$.
+We start with some preliminary setup where the sum of
+the weights across time $w_{j\bullet}$ corresponds to 
+`w.jb`, the sum of all weights $w_{\bullet\bullet}$ is
+`w.bb`, and the weighted average of the experience
+across time for each risk class $X_{j\circ}$ is
+given by `X.jc`.
+
+```{r}
+w.jb <- tapply(w.jt, j, sum)
+w.bb <- sum(w.jb)
+X.jc <- tapply(w.jt * X.jt / w.jb[j], j, sum)
+```
+
+Hence, the estimator for $\tau^2$ is given by
+
+```{r}
+num <- sum(w.jb * (X.jc - X.cc)^2) - (J - 1) * s2.hat
+den <- w.bb - sum(w.jb^2 / w.bb)
+(t2.hat <- num / den)
+```
+
+
+Finally, the credibility factors are
+
+```{r}
+Zj.hat <- w.jb / (w.jb + s2.hat / t2.hat)
+```
+
+and the collective premium is 
+
+```{r}
+(X.z <- sum(Zj.hat * X.jc) / sum(Zj.hat))
+```
+
+and putting them together we obtain the following
+credibility premiums
+
+```{r}
+P.hat <- Zj.hat * X.jc + (1 - Zj.hat) * X.z
+```
+
+The first 20 estimated credibility premiums are
+
+```{r}
+P.hat[1:20]
+```
+
+```{r}
+#| include: false
+
+rm(av, den, j, m, num, s2, t2, w.bb, w.jb,
+   X.cc, X.jc)
+```
+
+And as we did for the B&uuml;hlmann model, we can use the
+function `cm()` from package `actuar` to do the calculations
+necessary for the B&uuml;hlmann--Straub model.
+We first create a data frame with both the observations
+$X_{jt}$ and the weights $w_{jt}$ along with a column telling
+us which row of data belongs to which risk class.
+
+First, we create a data frame with the data we have
+
+```{r}
+D <- cbind(risk.class = 1:J, 
+           as.data.frame(matrix(X.jt, 
+                                nrow = J, 
+                                ncol = Tm, 
+                                byrow = TRUE)),
+           as.data.frame(matrix(w.jt, 
+                                nrow = J, 
+                                ncol = Tm, 
+                                byrow = TRUE)))
+```
+
+and then we estimate the model via
+
+```{r}
+(BS <- cm(~ risk.class, 
+          data = D, 
+          ratios = 2:6, 
+          weights = 7:11))
+```
+For the first five risk classes, our by-hand calculations
+match those from the `cm()` function.
+
+```{r}
+rbind("   cm():" = predict(BS)[1:5],
+      "by-hand:" = P.hat[1:5])
+```
+
+And they match across all risk classes:
+
+```{r}
+all(round(abs(predict(BS) - P.hat), 10) == 0)
+```
+
+```{r}
+#| include: false
+
+rm(BS, D, J, m.hat, P.hat, s2.hat, t2.hat, Tm, w.jt,
+   X.jt, X.z, Zj.hat)
+```
+
+
+
+## Hachemeister Regression {#sec-hachemeister-regression}
+
+In this chapter we have been working with the basic
+model
+$$
+  X_{jt} = m + \Xi_j + \epsilon_{jt},
+$$
+where $j$ indexes a risk class and $t$ represents time.
+Both $\Xi_j$ and $\epsilon_{jt}$ are random variables, and
+$m$ is a fixed parameter.
+
+We can extend the basic model in many ways.
+For example, consider a tree-like structure of
+an insurance line of business where at the top level we
+have the entire business.
+This can be divided into different sectors, and then each
+sector can again be divided into risk classes.
+Finally, each risk class has the observed experience.
+This model is known as Jewell's hierarchical model
+[@jewellUseCollateralData1975],
+and the statistical model can be written as
+$$
+  X_{sjt} = m + \Xi_s + \Xi_{sj} + \epsilon_{sjt},
+$$
+where $s = 1, 2, \dots, S$ represents the different
+sectors, $j = 1, 2, \dots, J$ corresponds to the different
+risk classes, and $t = 1, 2, \dots, T+1$ indexes the time
+periods.
+Extensions to more levels follow the same pattern.
+
+In this case, $\Xi_s$ is the deviation from the overall mean
+$m$ for sector $s$, $\Xi_{sj}$ is then the deviation from the 
+sector mean for risk class $j$, and $\epsilon_{sjt}$ represents
+the fluctuations through time.
+
+In this section, we are interested in a different extension
+of the basic model that will take us in the direction of the
+classical linear regression model.
+This model, known by actuaries as a credibility regression
+model, was first introduced to the actuarial literature by 
+@hachemeisterCredibilityRegressionModels1975.
+
+Inspired by the high inflation rates starting in the late 1960s
+and continuing into the early 1970s, Hachemeister became 
+interested in understanding loss severity trends and used
+data from private passenger automobile insurance (bodily injury coverage)
+for five different states to illustrate his ideas.
+The data is on a quarterly basis from Q3 1970 through Q2 1973
+(12 quarters of observations).
+
+@tbl-hachemeister-data
+shows the claim severity and the number of claims by state.
+Note that state 1 has a very large number of claims in each 
+quarter, and state 4 has the least number of claims of all
+states.
+The ratio of the number of claims, in each quarter, for 
+state 1 to state 4 is almost always in excess of 20.
+@fig-hachemeister-data displays a multiple time series plot
+for severity.
+The data for each state has been connected with a light
+gray line, and each state has been labeled on the right-hand
+side.
+State 4 has been highlighted with thick connecting segments
+to illustrate the data for a single state.
+
+```{r}
+#| include: false
+
+data("hachemeister", package = "actuar")
+dta <- hachemeister
+rm(hachemeister)
+```
+
+```{r}
+#| echo: false
+#| label: tbl-hachemeister-data
+#| tbl-cap: "The Hachemeister data. Number of claims and severity for five different states from private passenger automobile insurance (bodily injury coverage)."
+
+time <- c("3Q'70", "4Q'70",
+          paste(1:4, "Q'71", sep = ""),
+          paste(1:4, "Q'72", sep = ""),
+          "1Q'73", "2Q'73")
+tb <- cbind(time, as.data.frame(t(dta[,2:13])),
+            as.data.frame(t(dta[,14:25])))
+kbl(tb,
+    digits = 0,
+    row.names = FALSE,
+    col.names = c("Period", rep(1:5, 2)),
+    align = "lrrrrrrrrrr",
+    format.args = list(big.mark = ','),
+    booktabs = TRUE) |>
+  kable_styling(full_width = FALSE) |>
+  add_header_above(c(" ", "Claim Severity by State" = 5,
+                     "Number of Claims by State" = 5))
+
+rm(time, tb)
+```
+
+
+
+```{r}
+#| echo: false
+
+db.1 <- pivot_longer(as.data.frame(dta[,1:13]),
+                     cols = 2:13,
+                     names_to = "time",
+                     names_prefix = "ratio.",
+                     values_to = "severity")
+db.2<- pivot_longer(as.data.frame(dta[,c(1,14:25)]),
+                    cols = 2:13,
+                    names_to = "time",
+                    names_prefix = "weight.",
+                    values_to = "claims")
+db <- inner_join(db.1, db.2, by = c("state", "time"))
+db$state <- as.character(db$state)
+db$time <- as.numeric(db$time)
+write_csv(db, "hachemeister-data.csv")
+rm(db.1, db.2)
+```
+
+```{r}
+#| echo: false
+#| label: fig-hachemeister-data
+#| fig-cap: "Hachemeister data showing quarterly experience for private passenger auto (bodily injury coverage) severity for five different states from 3Q'70 to 2Q'73 (12 observations). Light gray lines connect the observations for each state to emphasize the state individual trends.  State 4 is highlighted with thicker line segments."
+
+state.x4 <- filter(db, state %in% c(1:3,5))
+state.4 <- filter(db, state %in% 4)
+state.all <- cbind(state = "ALL",
+                   summarize(group_by(db, time),
+                             clms = sum(claims),
+                             loss = sum(claims * severity),
+                             sev = loss / clms))
+p <- ggplot(data = state.x4,
+            mapping = aes(x = time,
+                          y = severity,
+                          group = state)) +
+  geom_line(color = "gray") +
+  geom_point(color = "gray") +
+  labs(x = "Time",
+       y = "Severity") +
+  scale_x_continuous(breaks = 1:12,
+                     labels = c(paste(3:4, "Q'70", sep = ""), 
+                                paste(1:4, "Q'71", sep = ""), 
+                                paste(1:4, "Q'72", sep = ""),
+                                paste(1:2, "Q'73", sep = "")),
+                     minor_breaks = NULL) +
+  geom_line(data = state.4,
+            mapping = aes(x = time,
+                          y = severity),
+            col = "gray", linewidth = 1.25) +
+  geom_point(data = state.4,
+             mapping = aes(x = time,
+                           y = severity),
+             color = "darkgray") +
+  annotate("text",
+           x = rep(12.0, 5),
+           y = db$severity[db$time == 12],
+           label = paste("State", 1:5, sep = " "),
+           size = 3)
+p
+```
+
+Notice that the variability in severity from quarter to quarter
+for state 4 is much greater than for other states, and state 1
+appears to be the most stable.
+This feature arises because the volume of claims underlying the
+severity is quite different between state 1 and state 4.
+
+The severity trend for each state is positive, and we could
+measure its magnitude by fitting a weighted least
+squares regression line to each state.
+Doing so yields the five light purple straight lines shown in
+@fig-hachemeister-individual-trends.
+We have also included a "countrywide" (data combined for all
+five states) weighted regression line shown in red.
+
+```{r}
+#| echo: false
+#| message: false
+#| label: fig-hachemeister-individual-trends
+#| fig-cap: 'Hachemeister data including individual regression lines for each state (shown in light purple) and a "countrywide" regression line (shown in red) for the combined data of all five states. The data for state 4 is connected with thick gray lines, and its corresponding individual regression line is also shown with a thick purple line.'
+
+q <- p + geom_smooth(data = state.x4,
+                     method = "lm",
+                     mapping = aes(x = time,
+                                   y = severity,
+                                   weight = claims),
+                     se = FALSE,
+                     color = "#f1b6da",
+                     linewidth = 0.5) +
+  geom_smooth(data = state.4,
+              method = "lm",
+              mapping = aes(x = time,
+                            y = severity,
+                            weight = claims),
+              se = FALSE,
+              color = "#f1b6da",
+              linewidth = 1.25) +
+  geom_smooth(data = state.all,
+              method = "lm",
+              mapping = aes(x = time,
+                            y = sev,
+                            weight = clms),
+              se = FALSE,
+              color = "red",
+              linewidth = 0.5)
+q
+```
+
+```{r}
+#| include: false
+
+rm(state.x4, state.4, state.all, p, q)
+```
+
+Looking at the trend lines for each state shown in
+@fig-hachemeister-individual-trends
+we can see that each one has a different level of severity
+and each one has a different positive slope.
+State 1 has the largest slope, and state 5 has the smallest.
+
+The basic credibility model that we have been working with
+cannot accommodate this setup, but we can extend it as
+follows:
+$$
+  X_{jt}  = \left\{ m^{(1)} + \Xi_j^{(1)} \right\} + 
+              \left\{ m^{(2)} + \Xi_j^{(2)} \right\} q_{jt} + 
+              \epsilon_{jt},
+$$ {#eq-credibility-regression-model}
+where $m^{(1)}$ and $m^{(2)}$ are unknown fixed parameters,
+$\Xi_j^{(1)}$ and $\Xi_j^{(2)}$ are random variables with mean
+zero, and $q_{jt}$ is, in this particular case, the explanatory
+variable time but in general could be any explanatory variable.
+
+If the random variables $\Xi_j^{(1)}$ and $\Xi_j^{(2)}$ are
+identically zero (that is, their variance is zero), then the model becomes a classical regression.
+If only $\Xi_j^{(2)}$ is identically zero, then we have a 
+random intercept model.
+In our example, every state would have its own intercept, but
+all states would share the same slope.
+That is, we would have parallel regression lines.
+We can estimate such a model via least squares by including
+an indicator variable for each state (and omitting the intercept).
+If only $\Xi_j^{(1)}$ is identically zero, then all states have
+the same intercept but each one has a different slope.
+This would be a random slope model.
+
+The regression lines shown in light purple in
+@fig-hachemeister-individual-trends
+have been estimated using *only* the information contained
+in each state.
+If we think the information in each state is fully credible,
+these estimated regression lines are appropriate.
+If, on the other hand, the information in each state is not 
+credible, we would ignore the `state` grouping variable
+by using all the data together to estimate the collective regression
+line.
+
+As we have seen with the B&uuml;hlmann and the 
+B&uuml;hlmann--Straub models, these are two extreme positions,
+and we can search for a compromise between the two.
+So Hachemeister set out to develop a credibility regression
+model.
+We will follow the discussion in Chapter 8 of
+@buhlmannCourseCredibilityTheory2005
+closely and focus on the example presented above of linear
+regression (intercept and slope) even though the ideas clearly
+apply to more general regression models.
+Also, we will change our notation slightly and use vectors and
+matrices to make the connection to linear regression more
+apparent.
+To this end, we can restate
+@eq-credibility-regression-model
+as follows
+$$
+  X_j = Q_j \; \beta(\Theta_j) + \epsilon_j,
+$$ {#eq-matrix-credibility-regression}
+where $X_j$ is a $T \times 1$ column vector of responses
+for risk class $j = 1, 2, \dots, J$ and $T$ is the number of
+time periods we have observed.
+In Hachemeister's example, this corresponds to the observed
+severities for state $j = 1, 2, \dots, 5$ during time
+periods $t = 1, 2, \dots, 12$, and therefore we have
+$$
+  X_j = \begin{bmatrix}
+          X_{j1} \\
+          X_{j2} \\
+          \vdots \\
+          X_{jT}
+        \end{bmatrix}.
+$$
+The matrix $Q_j$ is our regression design matrix for
+state $j$ with dimensions $T \times 2$:
+$$
+  Q_j = \begin{bmatrix}
+          1 & t_{j1} \\
+          1 & t_{j2} \\
+          \vdots & \vdots \\
+          1 & t_{jN}
+        \end{bmatrix}.
+$$
+The first column of $Q_j$ corresponds to the intercept,
+and the second column is the time variable.
+For our example, we have $t_{j1} = 1$, $t_{j2} = 2, \dots$,
+for all states $j$.
+The $2 \times 1$ vector $\beta(\Theta_j)$ is
+our regression coefficient.
+The reason for having the $\beta$'s depend on $\Theta_j$
+is that we are thinking of these regression coefficients
+as dependent on a random variable for each state.
+Thus, we have
+$$
+  \beta(\Theta_j) = \begin{bmatrix}
+                      \beta_0(\Theta_j) \\
+                      \beta_1(\Theta_j)
+                    \end{bmatrix},
+$$
+where $\beta_0(\Theta_j)$ is our intercept and
+$\beta_1(\Theta_j)$ is our slope for state $j$.
+Finally, the $T \times 1$ vector $\epsilon_j$ of
+error terms is
+$$
+  \epsilon_j = \begin{bmatrix}
+                 \epsilon_{j1} \\
+                 \epsilon_{j2} \\
+                 \vdots \\
+                 \epsilon_{jT}
+              \end{bmatrix}.
+$$
+
+The following definition and theorem come from Chapter 8 of
+@buhlmannCourseCredibilityTheory2005 [p. 205, 207].
+
+::: {#def-hachemeister-model}
+
+## Hachemeister model assumptions
+
+The risk class $j$ is characterized by a class risk profile
+$\vartheta_j$, which is itself the realization of a random
+variable $\Theta_j$.
+We make the following assumptions:
+
+Conditionally, given $\Theta_j$, the entries $X_{jt}$,
+$j = 1, \dots, J$ are independent, and we have 
+
+$$
+  \mathbb{E}[X_j | \Theta_j] = Q_j \, \beta(\Theta_j),
+$$
+
+where $\beta(\Theta_j)$ is the regression vector and $Q_j$ is 
+the known design matrix, and 
+
+$$
+  \text{Cov}[X_j, X'_j | \Theta_j] = \Sigma_j(\Theta_j)
+$$
+is the covariance matrix conditional on $\Theta_j$.
+The pairs $(\Theta_1, X_1)$, $(\Theta_2, X_2), \dots\ $ are 
+independent, and also $\Theta_1, \Theta_2, \dots\ $ are independent
+and identically distributed.
+
+:::
+
+::: {#thm-hachemeister-formula}
+
+## Hachemeister formula
+
+Under the Hachemeister model assumptions we get that
+the credibility estimator for $\beta(\Theta_j)$ satisfies
+
+$$
+  \widehat{\beta(\Theta_j)} = A_j B_j + (I - A_j) \beta,
+$$ {#eq-regression-credibility-formula}
+
+where
+
+\begin{align*}
+  A_j &= U \left( U + (Q'_j S_j^{-1}Q_j)^{-1} \right)^{-1}, \\
+  B_j &= (Q'_j S_j^{-1} Q_j)^{-1} Q'_j S_j^{-1} X_j, \\
+  S_j &= \mathbb{E}[\Sigma_j(\Theta_j)] = 
+    \mathbb{E}[\text{Cov}[X_j,X'_j | \Theta_j]], \\
+  U &= \text{Cov}[\beta(\Theta_j), \beta(\Theta_j)'], \\
+  \beta &= \mathbb{E}[\beta(\Theta_j)].
+\end{align*}
+
+:::
+
+The credibility matrices $A_j$ are for the example we are
+considering of dimension $2 \times 2$.
+The $2 \times 1$ vector $B_j$ is the intercept and slope
+for each state $j$.
+The matrices $S_j$ have dimension $T \times T$ and are
+of the form
+$$
+  S_j = \sigma^2 \begin{bmatrix}
+                   w_{j1} & 0 & \cdots & 0 \\
+                   0 & w_{j2} & \cdots & 0 \\
+                   \vdots & \vdots & \ddots & \vdots \\
+                   0 & 0 & \dots & w_{jT}
+                 \end{bmatrix}^{-1},
+$$
+where the diagonal entries $w_{jt}$ are known weights.
+We will use $W_j$ as the diagonal matrix with entries
+$w_{jt}$ along the main diagonal and zeroes everywhere
+else.
+Thus, we can write $S_j = \sigma^2 W_j^{-1}$.
+In our example, the $w_{jt}$ are the number of claims at
+time $t$ in state $j$.
+
+The matrix $U$, of dimension $2 \times 2$, is the 
+variance-covariance matrix of the estimated coefficients.
+Because the matrix $U$ is symmetric, there are at most three
+distinct entries.
+And, finally, the $2 \times 1$ vector $\beta$ is the
+collective intercept and slope.
+
+Let us apply the Hachemeister formula (@thm-hachemeister-formula)
+to the data we have at hand.
+In several places we must calculate the product
+$Q'_j S_j^{-1} Q_j$, with $S_j$ being the diagonal matrix in
+the earlier paragraph.
+This product is closely related to $Q'_j W_j Q_j$, which comes
+up several times, so let us define
+$$
+  V_j = Q'_j W_j Q_j,
+$$
+which is a $2 \times 2$ matrix.
+Specializing for the Hachemeister data, we have
+$$
+  V_j = \begin{bmatrix}
+          1 & 1 & \dots & 1 \\
+          1 & 2 & \dots & T 
+        \end{bmatrix}
+        \begin{bmatrix}
+          w_{j1} & 0 & \dots & 0 \\
+          0 & w_{j2} & \dots & 0 \\
+          \vdots & \vdots & \ddots & \vdots \\
+          0 & 0 & \dots & w_{jT}
+        \end{bmatrix}
+        \begin{bmatrix}
+          1 & 1 \\
+          1 & 2 \\
+          \vdots & \vdots \\
+          1 & T
+        \end{bmatrix}.
+$$
+Doing the matrix multiplications gives us the following:
+$$
+  V_j = \begin{bmatrix}
+          \sum_{t=1}^T w_{jt} & \sum_{t=1}^T t w_{jt} \\[2pt]
+          \sum_{t=1}^T t w_{jt} & \sum_{t=1}^T t^2 w_{jt}
+        \end{bmatrix}.
+$$
+The entries in the matrix $V_j$ almost look like weighted
+averages.
+They are missing a denominator equal to $\sum_{t=1}^T w_{jt}$.
+To keep the notation cleaner, we use the same convention as
+before: a $\bullet$ symbol in an index position
+means that we sum all entries along that index.
+Hence, we have $w_{j\bullet} = \sum_{t=1}^T w_{jt}$.
+Therefore, we can rewrite the above matrix $V_j$ as
+$$
+  V_j = w_{j\bullet} 
+    \begin{bmatrix}
+      \sum_{t=1}^T \frac{w_{jt}}{w_{j\bullet}} & 
+        \sum_{t=1}^T t \frac{w_{jt}}{w_{j\bullet}} \\[2pt]
+      \sum_{t=1}^T t \frac{w_{jt}}{w_{j\bullet}} & 
+        \sum_{t=1}^T t^2 \frac{w_{jt}}{w_{j\bullet}}
+    \end{bmatrix}.
+$$
+To simplify the notation further, note that the off-diagonal
+entries look like the calculation of the expected value of
+$t$ because the weights $w_{jt}/w_{j\bullet}$ sum to 1, and
+so we are thinking of them as a sampling distribution.
+Similarly, the entry in position $(2,2)$ looks like the
+calculation of the second moment.
+
+In view of this, we define the following notations:
+$$
+  E_j^{(s)}[t] = \sum_{t=1}^T \frac{w_{jt}}{w_{j\bullet}} t
+  \qquad\text{and}\qquad
+  E_j^{(s)}[X_j] = \sum_{t=1}^T \frac{w_{jt}}{w_{j\bullet}} X_{jt},
+$$
+where the superscript $(s)$ signals that we are thinking of the 
+weights $w_{jt}/w_{j\bullet}$ as a sampling distribution.
+With this notation, we can also write
+$$
+\text{Var}^{(s)}_j[t] = E_j^{(s)}[t^2] - 
+\left( E_j^{(s)}[t] \right)^2.
+$$
+Using all of this, the matrix $V_j$ is now
+$$
+  V_j = w_{j\bullet} 
+        \begin{bmatrix}
+          1 & E_j^{(s)}[t] \\
+          E_j^{(s)}[t] & E_j^{(s)}[t^2]
+        \end{bmatrix},
+$$
+and note that its determinant is equal to 
+$\text{det}(V_j) = w_{j\bullet}^2 \text{Var}^{(s)}[t]$.
+
+Using @thm-hachemeister-formula we can calculate $B_j$
+as follows:
+
+\begin{align*}
+B_j &= V_j^{-1}Q'_jW_jX_j \\
+    &= \frac{1}{w_{j\bullet} \text{Var}^{(s)}[t]}
+    \begin{bmatrix}
+      E_j^{(s)}[t^2] & -E_j^{(s)}[t] \\
+          -E_j^{(s)}[t] & 1
+    \end{bmatrix}
+    \begin{bmatrix}
+      \sum_{t=1}^T w_{jt} X_{jt} \\[4pt]
+      \sum_{t=1}^T w_{jt} t X_{jt}
+    \end{bmatrix} \\
+    &= \frac{1}{\text{Var}^{(s)}[t]}
+    \begin{bmatrix}
+      E_j^{(s)}[t^2] & -E_j^{(s)}[t] \\
+          -E_j^{(s)}[t] & 1
+    \end{bmatrix}
+    \begin{bmatrix}
+      \sum_{t=1}^T \frac{w_{jt}}{w_{j\bullet}} X_{jt} \\[4pt]
+      \sum_{t=1}^T \frac{w_{jt}}{w_{j\bullet}} t X_{jt}
+    \end{bmatrix} \\
+    &= \frac{1}{\text{Var}^{(s)}[t]}
+    \begin{bmatrix}
+      E_j^{(s)}[t^2] & -E_j^{(s)}[t] \\
+          -E_j^{(s)}[t] & 1
+    \end{bmatrix}
+    \begin{bmatrix}
+      E_j^{(s)} [X_{jt}] \\[2pt]
+      E_j^{(s)} [t X_{jt}]
+    \end{bmatrix} \\
+    &= \frac{1}{\text{Var}^{(s)}[t]}
+    \begin{bmatrix}
+      E_j^{(s)} [t^2] E_j^{(s)} [X_{jt}] - 
+        E_j^{(s)} [t] E_j^{(s)} [t X_{jt}] \\[2pt]
+      E_j^{(s)} [t X_{jt}] - E_j^{(s)} [t] E_j^{(s)} [X_{jt}]
+    \end{bmatrix}
+\end{align*}
+
+Let us implement these calculations using Hachemeister's data.
+First, let's define some quantities: the weights `W.jt`, the
+time points `T.jt`, the observed severities `X.jt`, and the 
+vector `S`, which tells us which state these observations 
+belong to.
+
+```{r}
+W.jt <- db$claims
+T.jt <- db$time
+X.jt <- db$severity
+S <- db$state
+N <- length(unique(T.jt))
+J <- length(unique(S))
+```
+
+Next, we calculate the summary statistics that we will need. 
+@tbl-variable-notation shows the correspondence between our programming
+variable names and the written notation used in the text.
+
+::: {#tbl-variable-notation}
+
+| Variable | Written Notation | Variable | Written Notation |
+|:---------|:-----------------|:---------|:-----------------|
+| `W.jb`   | $w_{j\bullet}$              | `Ej.tX`  | $E_j^{(s)}[t X_j]$                                |
+| `W.bb`   | $\sum_{j=1}^J w_{j\bullet}$ | `Vj.t`   | $\text{Var}_j^{(s)}[t]$                           |
+| `Ej.t`   | $E_j^{(s)}[t]$              | `Ws.jb`  | $\text{Var}_j^{(s)}[t] w_{j\bullet}$              |
+| `Ej.t2`  | $E_j^{(s)}[t^2]$            | `Ws.bb`  | $\sum_{j=1}^J \text{Var}_j^{(s)}[t] w_{j\bullet}$ |
+| `Ej.X`   | $E_j^{(s)}[X_j]$            |          |                                                   |
+
+Correspondence between programming variable and written notation in the text. 
+
+:::
+
+```{r}
+W.jb <- tapply(W.jt, S, sum)
+W.bb <- sum(W.jb)
+Ej.t <- tapply(W.jt * T.jt, S, sum) / W.jb
+Ej.t2 <- tapply(W.jt * T.jt^2, S, sum) / W.jb
+Ej.X <- tapply(W.jt * X.jt, S, sum) / W.jb
+Ej.tX <- tapply(W.jt * T.jt * X.jt, S, sum) / W.jb
+Vj.t <- Ej.t2 - Ej.t^2
+Ws.jb <- Vj.t * W.jb
+Ws.bb <- sum(Ws.jb)
+```
+
+With these definitions, we can calculate the intercept
+and slope for each state using
+
+```{r}
+Bj <- rbind((Ej.t2 * Ej.X - Ej.t * Ej.tX) / Vj.t,
+            (Ej.tX - Ej.t * Ej.X) / Vj.t)
+dimnames(Bj) <- list(c("Intercept", "Slope"),
+                     1:5)
+round(Bj, 2)
+```
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Verify that the intercept and slope we calculated for each state
+are correct by doing it the easy way; that is, fit a weighted
+linear regression to the data for each state.
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+For state 4 we would compute as follows:
+
+```{r}
+lm.st4 <- lm(severity ~ time,
+             data = db,
+             subset = state == 4,
+             weights = claims)
+coef(lm.st4)
+```
+
+And indeed these coefficients match those we computed
+earlier.
+We leave similar calculations, for the remaining states, to the reader.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Verify that the intercept and slope we calculated for each state
+are correct by doing it the easy way; that is, fit a weighted
+linear regression to the data for each state.
+
+:::
+
+::: {.pmmsol}
+
+For state 4 we would compute as follows:
+
+```{r}
+lm.st4 <- lm(severity ~ time,
+             data = db,
+             subset = state == 4,
+             weights = claims)
+coef(lm.st4)
+```
+
+And indeed these coefficients match those we computed
+earlier.
+We leave similar calculations, for the remaining states, to the reader.
+
+:::
+
+:::
+
+Next, on page 209 of 
+@buhlmannCourseCredibilityTheory2005, they
+assume that the $2 \times 2$ matrix $U = \text{Cov}[\beta(\Theta_j), \beta(\Theta_j)']$ is
+diagonal with entries $\tau_0^2$ and $\tau_1^2$, that is,
+$$
+  U = \begin{bmatrix}
+        \tau_0^2 & 0 \\
+        0 & \tau_1^2
+      \end{bmatrix}.
+$$
+This implies that the intercept and the slope are 
+independent of each other.
+
+The credibility matrices $A_j$ are given in
+@thm-hachemeister-formula
+as 
+$$
+  A_j = U \left(U + (Q'_jS_j^{-1}Q_j)^{-1}\right)^{-1},
+$$
+and we can rewrite, by using $V_j$, as follows
+$$
+  A_j = U \left( U + \sigma^2 V_j^{-1} \right)^{-1}.
+$$
+We could substitute expressions for $U$ and $V_j$ and 
+compute, but that requires a lot of calculations.
+It is best to rewrite as follows:
+\begin{align*}
+  A_j &= U \left( U + \sigma^2 V_j^{-1} \right)^{-1} \\
+      &= \left( I + \sigma^2 V_j^{-1} U^{-1} \right)^{-1} \\
+      &= \left(V_j + \sigma^2 U^{-1} \right)^{-1} V_j.
+\end{align*}
+
+The inverse of $U$ is easy because $U$ is a $2 \times 2$ diagonal matrix.
+We have
+$$
+  U^{-1} = \frac{1}{\tau_0^2 \tau_1^2}
+           \begin{bmatrix}
+             \tau_1^2 & 0 \\
+             0 & \tau_0^2
+           \end{bmatrix},
+$$
+and noting that we need to multiply by $\sigma^2$,
+we can make the following substitutions.
+Let $\kappa_0 = \sigma^2/\tau_0^2$ and
+$\kappa_1 = \sigma^2 / \tau_1^2$, then we have 
+$$
+  U^{-1} = \frac{1}{\sigma^2}
+           \begin{bmatrix}
+             \kappa_0 & 0 \\
+             0 & \kappa_1
+           \end{bmatrix},
+$$
+and so 
+$$
+  V_j + \sigma^2 U^{-1} = 
+    \begin{bmatrix}
+      w_{j\bullet} + \kappa_0   & w_{j\bullet} E^{(s)}_j[t] \\
+      w_{j\bullet} E^{(s)}_j[t] & w_{j\bullet} E^{(s)}_j[t^2] + \kappa_1
+    \end{bmatrix}.
+$$
+The inverse of the above matrix is
+$$
+  (V_j + \sigma^2 U^{-1})^{-1} = \frac{1}{D}
+  \begin{bmatrix}
+     w_{j\bullet} E^{(s)}_j[t^2] + \kappa_1 & -w_{j\bullet}E^{(s)}_j[t] \\
+    -w_{j\bullet} E^{(s)}_j[t] & w_{j\bullet} + \kappa_0
+  \end{bmatrix},
+$$
+where $D$ is the determinant given by
+$$
+  D = (w_{j\bullet} + \kappa_0) \left( w_{j\bullet} E^{(s)}_j[t^2] + \kappa_1\right) - \left( w_{j\bullet} E^{(s)}_j[t] \right)^2.
+$$
+Finally, multiplying the above expression by $V_j$ and 
+recalling that $\text{Var}^{(s)}_j[t] = E^{(s)}_j[t^2] - 
+\left( E^{(s)}_j[t]\right)^2$, we obtain
+the credibility matrix $A_j$ as
+$$
+  A_j = \frac{w_{j\bullet}}{D}
+  \begin{bmatrix}
+    w_{j\bullet} \text{Var}^{(s)}_j[t] + \kappa_1 & 
+    \kappa_1 E^{(s)}_j[t] \\ 
+    \kappa_0 E^{(s)}_j[t] & 
+    w_{j\bullet} \text{Var}^{(s)}_j[t] + 
+    \kappa_0 E^{(s)}_j[t^2]
+  \end{bmatrix}.
+$$ {#eq-credibility-matrix-final-form}
+To compute the credibility matrices $A_j$ for the
+Hachemeister data, we will need to find estimators
+[@buhlmannCourseCredibilityTheory2005, 216--217]
+for the three parameters $\sigma^2$, $\tau_0^2$, and 
+$\tau_1^2$.
+They are as follows. Consider an estimator of the
+variance across time for a single state $j$:
+$$
+  \hat{\sigma}_j^2 = \frac{1}{n - 2} \sum_{t=1}^T w_{jt}\left(X_{jt} - \hat{\mu}_{jt} \right)^2,
+$$ {#eq-credibility-estimator-sigma-squared-j}
+where $\hat{\mu}_{jt}$ are the fitted values from the
+regression equation for state $j$.
+These we can compute via
+
+```{r}
+Ys <- cbind(rep(1, 12), 1:12)
+mu.jt <- as.vector(Ys %*% Bj)
+sigmaj.sq <- tapply(W.jt * (X.jt - mu.jt)^2, S, sum) / (N - 2)
+```
+
+```{r}
+#| include: false
+
+rm(Ys, mu.jt)
+```
+
+Then, take as an estimator for $\sigma^2$ the average
+of the individual state estimators, that is,
+$$
+  \sigma^2 = \frac{1}{J} \sum_{j=1}^J \hat{\sigma}_j^2.
+$$ {#eq-credibility-estimator-sigma-squared}
+
+```{r}
+sigma.sq <- mean(sigmaj.sq)
+```
+
+For the estimators of the variances of the intercept
+$\tau_0^2$ and slope $\tau_1^2$, we use estimators
+that are analogous to those in the B&uuml;hlmann--Straub model.
+That is,
+$$
+  \hat{\tau}_0^2 = c_0 
+  \left\{ 
+    \frac{J}{J-1} \sum_{j=1}^J
+      \frac{w_{j\bullet}}{w_{\bullet\bullet}}
+      \left(B_{0j} - \bar{B}_0\right)^2 - 
+      \frac{J\hat{\sigma}^2}{w_{\bullet\bullet}}
+  \right\},
+$$ {#eq-estimator-variance-intercept}
+where
+$$
+  c_0 = \frac{J-1}{J} 
+        \left\{
+          \sum_{j=1}^J \frac{w_{j\bullet}}{w_{\bullet\bullet}}
+          \left(
+            1 - \frac{w_{j\bullet}}{w_{\bullet\bullet}}
+          \right)
+        \right\}^{-1},
+$$ {#eq-estimator-term-c0}
+and
+$$
+  \bar{B}_{0} = \sum_{j=1}^J 
+    \frac{w_{j\bullet}}{w_{\bullet\bullet}}
+    B_{0j}.
+$$
+
+We can compute these quantities by starting with $\bar{B}_0$.
+
+```{r}
+B0.bar <- sum(W.jb / W.bb * Bj[1,])
+```
+
+Then we will need $c_0$ (@eq-estimator-term-c0), which we will break up into smaller
+terms,
+$$
+  \text{term}_1 = \frac{J-1}{J}, \quad
+  \text{term}_2 = \frac{w_{j\bullet}}{w_{\bullet\bullet}}, \quad
+  \text{term}_3 = 1 - \frac{w_{j\bullet}}{w_{\bullet\bullet}}, \quad
+  \text{term}_4 = \sum_{j=1}^J \frac{w_{j\bullet}}{w_{\bullet\bullet}}
+    \left( 1 - \frac{w_{j\bullet}}{w_{\bullet\bullet}} \right),
+$$
+and finally calculating $c_0$ as
+$$
+  c_0 = \frac{\text{term}_1}{\text{term}_4}.
+$$
+
+```{r}
+term.1 <- (J - 1) / J
+term.2 <- W.jb / W.bb
+term.3 <- 1 - term.2
+term.4 <- sum(term.2 * term.3)
+c0 <- term.1 / term.4
+```
+
+```{r}
+#| include: false
+
+rm(term.1, term.2, term.3, term.4)
+```
+
+And for the calculation of $\tau_0^2$ (@eq-estimator-variance-intercept), we also break it up into
+more manageable pieces:
+$$
+  \text{term}_1 = \frac{J}{J-1}, \quad
+  \text{term}_2 = \frac{w_{j\bullet}}{w_{\bullet\bullet}}, \quad
+  \text{term}_3 = \left(B_{0j} - \bar{B}_0 \right)^2, \quad
+  \text{term}_4 = \frac{J \sigma^2}{w_{\bullet\bullet}} 
+$$
+
+```{r}
+term.1 <- J / (J - 1)
+term.2 <- W.jb / W.bb
+term.3 <- (Bj[1,] - B0.bar)^2
+term.4 <- J * sigma.sq / W.bb
+tau0.sq <- c0 * (term.1 * sum(term.2 * term.3) - term.4)
+```
+
+```{r}
+#| include: false
+
+rm(term.1, term.2, term.3, term.4)
+```
+
+
+And similarly for $\tau_1^2$.
+The formulas are the same with a small change.
+Instead of using $w_{j\bullet}$, we use 
+$w^*_{j\bullet}$, where
+$$
+  w^*_{j\bullet} = \text{Var}^{(s)}_j[t] \cdot w_{j\bullet}.
+$$
+Therefore, we have
+$$
+  \hat{\tau}_1^2 = c_1 
+  \left\{ 
+    \frac{J}{J-1} \sum_{j=1}^J
+      \frac{w^*_{j\bullet}}{w^*_{\bullet\bullet}}
+      \left(B_{1j} - \bar{B}_1\right)^2 - 
+      \frac{J\hat{\sigma}^2}{w^*_{\bullet\bullet}}
+  \right\},
+$$ {#eq-estimator-variance-slope}
+where
+$$
+  c_1 = \frac{J-1}{J} 
+        \left\{
+          \sum_{j=1}^J \frac{w^*_{j\bullet}}{w^*_{\bullet\bullet}}
+          \left(
+            1 - \frac{w^*_{j\bullet}}{w^*_{\bullet\bullet}}
+          \right)
+        \right\}^{-1},
+$$
+and
+$$
+  \bar{B}_{1} = \sum_{j=1}^J 
+    \frac{w^*_{j\bullet}}{w^*_{\bullet\bullet}}
+    B_{1j}.
+$$
+The values of $B_{0j}$ and $B_{1j}$ are the intercept
+and slope, respectively, for each individual state $j$, and so we have 
+that $\bar{B}_0$ and $\bar{B}_1$ are the weighted
+averages of the estimated state parameters.
+
+The calculation for $\tau_1^2$ (@eq-estimator-variance-slope) is analogous to $\tau_0^2$.
+The code to accomplish this follows:
+
+```{r}
+B1.bar <- sum(Ws.jb / Ws.bb * Bj[2,])
+```
+
+
+```{r}
+term.1 <- (J - 1) / J
+term.2 <- Ws.jb / Ws.bb
+term.3 <- 1 - term.2
+term.4 <- sum(term.2 * term.3)
+c1 <- term.1 / term.4
+```
+
+```{r}
+#| include: false
+
+rm(term.1, term.2, term.3, term.4)
+```
+
+```{r}
+term.1 <- J / (J - 1)
+term.2 <- Ws.jb / Ws.bb
+term.3 <- (Bj[2,] - B1.bar)^2
+term.4 <- J * sigma.sq / Ws.bb
+tau1.sq <- c1 * (term.1 * sum(term.2 * term.3) - term.4)
+```
+
+```{r}
+#| include: false
+
+rm(term.1, term.2, term.3, term.4)
+```
+
+These calculations yield
+$$
+  \hat{\sigma}^2 = `r round(sigma.sq, 4)`, \quad 
+  \hat{\tau}_0^2 = `r round(tau0.sq, 4)`, \quad 
+  \hat{\tau}_1^2 = `r round(tau1.sq, 4)`.
+$$
+
+With these parameter estimates we can now calculate the 
+credibility matrices $A_j$, the collective intercept 
+and slope, and the credibility-weighted estimates for
+each state.
+Note that the Hachemeister data had five states, but even if
+it had data for all 50 states, we would still need to
+estimate only three parameters.
+Moreover, these parameters are not specific to these five states.
+We have treated these states as coming from a population of states,
+and these parameters estimate features of the population.
+
+Now that we have estimates for $\sigma^2$, $\tau_0^2$, and 
+$\tau_1^2$, we can calculate the credibility-weighted estimates
+of the intercept and slope for our states.
+The following code sets up the necessary quantities:
+
+```{r}
+k0 <- sigma.sq / tau0.sq
+k1 <- sigma.sq / tau1.sq
+
+Determ <- (W.jb + k0) * (W.jb * Ej.t2 + k1) - (W.jb * Ej.t)^2
+term.11 <- W.jb * Vj.t + k1
+term.12 <- k1 * Ej.t
+term.21 <- k0 * Ej.t
+term.22 <- W.jb * Vj.t + k0 * Ej.t2
+```
+
+```{r}
+#| include: false
+
+rm(k0, k1)
+```
+
+Using @eq-credibility-matrix-final-form we can define a function
+that will return the credibility matrix $A_j$ as
+
+```{r}
+A <- function(j) {
+  M <- matrix(c(term.11[j], term.12[j],
+                term.21[j], term.22[j]),
+              nrow = 2, ncol = 2, byrow = TRUE)
+  ans <- W.jb[j] / Determ[j] * M
+  dimnames(ans) <- list(c("", ""),
+                        c("", ""))
+  return(ans)
+}
+```
+
+We will also need the collective's estimate of the intercept and 
+slope.  This estimate is equal to the weighted average of the 
+individual state estimates where the weights are given by the 
+credibility matrices as follows:
+$$
+  B_{\text{GLS}} = \left( \sum_{j=1}^J A_j \right)^{-1} 
+                   \sum_{j=1}^J A_j B_j,
+$$
+where $B_j$ is the estimate of the intercept and slope for
+state $j$.
+We have labeled the estimate with the subscript "GLS" because it
+turns out that this estimate is equal to the generalized
+least squares (GLS) estimate.
+
+```{r}
+B.gls <- solve(A(1) + A(2) + A(3) + A(4) + A(5)) %*% 
+  (A(1) %*% Bj[,1] + A(2) %*% Bj[,2] + A(3) %*% Bj[,3] +
+     A(4) %*% Bj[,4] + A(5) %*% Bj[,5])
+```
+
+The credibility-weighted estimate for state $j$, which we 
+label as $CW_j$, is equal to
+$$
+  CW_j = A_j B_j + (I - A_j) B_{\text{GLS}},
+$$
+where $I$ is a $2 \times 2$ identity matrix.
+
+```{r}
+CW <- function(j){
+  I <- diag(1, nrow = 2, ncol = 2)
+  ans <- A(j) %*% Bj[,j] + (I - A(j)) %*% B.gls
+  dimnames(ans) <- list(c("Intercept", "Slope"),
+                        paste("State", j, sep = " "))
+  return(ans)
+}
+```
+
+For state 1, the credibility matrix $A_1$ is
+
+```{r}
+round(A(1), 4)
+```
+and the credibility-weighted estimate of the intercept 
+and slope for state 1 are 
+
+```{r}
+round(CW(1), 2)
+```
+
+@tbl-HM-estimates
+assembles the credibility matrices and the standalone,
+credibility-weighted, and collective estimates.
+
+```{r}
+#| echo: false
+
+CM <- rbind(A(1), A(2), A(3), A(4), A(5))
+dimnames(CM) <- list(rep(1:5, each = 2),
+                     c("Credibility", "Matrix"))
+BM <- rbind(Bj[1,1], Bj[2,1],
+            Bj[1,2], Bj[2,2],
+            Bj[1,3], Bj[2,3], 
+            Bj[1,4], Bj[2,4], 
+            Bj[1,5], Bj[2,5])
+CR <- rbind(CW(1), CW(2), CW(3), CW(4), CW(5))
+BG <- rbind(B.gls,B.gls,B.gls,B.gls,B.gls)
+ST <- cbind(state = rep(1:5, each = 2), CM, BM, CR, BG)
+dimnames(ST) <- list(rep(1:5, each = 2),
+                     c("State", "Credibility", "Matrix",
+                       "Stand-Alone", "Credibility", "Collective"))
+rm(CM, BM, CR, BG)
+```
+
+```{r}
+#| echo: false
+#| label: tbl-HM-estimates
+#| tbl-cap: "Hachemeister's credibility matrices and regression estimates. Each pair of rows corresponds to a state. Columns two and three provide the 2 x 2 credibility matrix. The remaining columns give us the intercept (first row) and the slope (second row) for each state."
+
+kbl(ST,
+    booktabs = TRUE,
+    digits = c(0,4,4,2,2,2),
+    row.names = FALSE,
+    col.names = c("State", "Col. 1", "Col. 2", "Stand-Alone", "Credibility", "Collective"),
+    align = "cccrrr",
+    linesep = c("", "\\addlinespace")) |>
+  add_header_above(c(" " = 1, "Credibility Matrix" = 2, "Intercept and Slope Estimates" = 3)) |>
+  kable_classic()
+rm(ST)
+```
+
+
+The last column, labeled "Collective," repeats its entries for every
+state because we have only a single estimate for the entire
+portfolio of states.
+For the "Standalone," "Credibility," and "Collective" columns,
+we have listed the estimate of the intercept first and of the
+slope second.
+
+Carefully inspecting the credibility estimates for each state
+reveals some peculiarities that 
+[@hachemeisterCredibilityRegressionModels1975, 153]
+noted in his work as follows:
+
+> State #4 trend lines clearly point out a distressing aspect
+> of the credibility adjusted trend line.
+> The credibility adjusted trend line has a lower trend than
+> both the country wide and the state trend line.
+
+This is clearly seen in
+@fig-credibility-estimates,
+where we have one panel for each state and have included the 
+collective estimate of the trend line (dark green line), the
+stand-alone state estimate (light purple line), and the 
+credibility-weighted trend estimate (dark purple line).
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+By carefully inspecting the table of estimates, for both 
+intercept and slope, determine which of the credibility estimates are
+not between the collective and stand-alone figures.
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+For state 1, the credibility slope is outside, and the intercept is 
+inside the intervals defined by the stand-alone and collective
+estimates, and for state 2, only the slope is not between the 
+stand-alone and collective estimates.
+State 3 has its intercept outside the collective and the
+stand-alone figures.
+The slope for state 4, as we have seen, is outside.
+Only state 5 has both its intercept and slope within the intervals
+defined by the stand-alone and collective estimates.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+By carefully inspecting the table of estimates, for both 
+intercept and slope, determine which of the credibility estimates are
+not between the collective and stand-alone figures.
+
+
+:::
+
+::: {.pmmsol}
+
+For state 1, both the credibility slope and intercept are 
+outside the intervals defined by the stand-alone and collective
+estimates, and for state 2, only the slope is not between the 
+stand-alone and collective estimates.
+State 3 has its intercept outside the collective and the
+stand-alone figures.
+The slope for state 4, as we have seen, is outside.
+Only state 5 has both its intercept and slope within the intervals
+defined by the stand-alone and collective estimates.
+
+:::
+
+:::
+
+
+```{r}
+#| include: false
+
+db2 <- db
+db2$SA <- NA   # Stand-alone prediction
+db2$CW <- NA   # Credibility weighted prediction
+db2$CO <- NA   # Collective prediction
+for (j in 1:5) {
+  idx <- db2$state == j
+  Y <- cbind(rep(1, sum(idx)),
+             T.jt[idx])
+  db2$SA[idx] <- Y %*% Bj[,j]
+  db2$CW[idx] <- Y %*% CW(j)
+  db2$CO[idx] <- Y %*% B.gls
+}
+db3 <- pivot_longer(db2,
+                    cols = 5:7,
+                    names_to = "Type",
+                    values_to = "Prediction") |>
+  mutate(Type = factor(Type,
+                       levels = c("SA","CW","CO")))
+```
+
+```{r}
+#| include: false
+
+rm(db2, j, idx, Y)
+```
+
+
+```{r}
+#| echo: false
+#| label: fig-credibility-estimates
+#| fig-cap: "Credibility estimates for Hachemeister data. The green line corresponds to the collective estimate.  The light purple line is the stand-alone estimate for the state, and the dark purple line is the credibility-weighted estimate. For all the states, except state 4, the stand-alone (light purple) and credibility lines (dark purple) are nearly one on top of the other."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+cls <- c(CO = "#4dac26", CW = "#d01c8b", SA = "#f1b6da")
+ggplot(data = db3,
+       mapping = aes(x = time,
+                     y = severity,
+                     group = state,
+                     color = Type)) +
+  facet_wrap(vars(state), labeller = label_both) +
+  geom_line(mapping = aes(x = time, 
+                          y = Prediction,
+                          group = Type)) +
+  labs(x = "Time (in Qs)",
+       y = "Severity") +
+  scale_x_continuous(breaks = (1:6) * 2,
+                     minor_breaks = NULL) +
+  coord_cartesian(ylim = c(1204.51, 2809.63)) +
+  scale_color_manual(values = cls,
+                     labels = c("Stand-Alone", "Credibility", "Collective")) +
+  guides(color = guide_legend(title = "Estimates")) +
+  theme(legend.position = "top")
+```
+
+```{r}
+#| include: false
+
+rm(cls)
+```
+
+Several authors
+[@devylder1981regression; 
+ @devylderNonlinearRegressionCredibility1985;
+ @buhlmannCredibilityRegressionCase1997]
+have noted the strange credibility estimates Hachemeister
+arrived at,
+and many actuaries would not apply these methods in practice.
+Some authors
+[@devylder1981regression; 
+ @devylderNonlinearRegressionCredibility1985]
+tried to impose constraints to resolve the issues, and others
+[@danneburg1996basiccredibility] have pointed out that those constraints
+have drawbacks.
+In 1997, @buhlmannCredibilityRegressionCase1997 found a simple solution.
+Recall that the credibility matrix $A_j$ in 
+@eq-credibility-matrix-final-form
+is equal to
+$$
+A_j = \frac{w_{j\bullet}}{D}
+  \begin{bmatrix}
+    w_{j\bullet} \text{Var}^{(s)}_j[t] + \kappa_1 & 
+    \kappa_1 E^{(s)}_j[t] \\ 
+    \kappa_0 E^{(s)}_j[t] & 
+    w_{j\bullet} \text{Var}^{(s)}_j[t] + 
+    \kappa_0 E^{(s)}_j[t^2]
+  \end{bmatrix},
+$$
+and looking at the off-diagonal elements, namely, $\kappa_1 E^{(s)}_j[t]$
+and $\kappa_0 E^{(s)}_j[t]$, we might want to make them equal to zero.
+If our credibility matrix $A_j$ is diagonal,
+then the credibility-weighted estimates of the intercept and slope would
+be split into two individual credibility calculations: one for the
+intercept and one for the slope.
+Currently with the credibility matrix we have, the estimate for the
+intercept involves combining both the intercepts and slopes of the
+stand-alone and collective estimates.
+Similarly, the credibility estimate of the slope is a combination of both
+the intercept and slope estimates of the state and the collective.
+
+So how could those off-diagonal elements be zero?
+That is, how could we make $E^{(s)}_j[t]$ be zero?
+Remembering that 
+$$
+  E^{(s)}_j[t] = \sum_{t=1}^T \frac{w_{jt}}{w_{j\bullet}} t,
+$$
+we could shift our time variable $t$ so that the above expression is
+equal to zero.
+In other words, we would like to replace $t$ with $t - t_0$ such that
+$E^{(s)}_j[t - t_0] = 0$.
+Namely, we would let
+$$
+  t_0 = \sum_{t=1}^T \frac{w_{jt}}{w_{j\bullet}} t.
+$$
+Note that $t_0$ is the weighted average of the time variable for
+state $j$.
+We could also call $t_0$ the "center of gravity" for state $j$.
+With this translation of the time axis we are putting the intercept
+of our model at time $t = t_0$ instead of at the traditional origin
+of time $t = 0$.
+
+In this case, the new credibility matrix $A'_j$ becomes
+\begin{align*}
+A'_j &= \frac{w_{j\bullet}}{D'}
+  \begin{bmatrix}
+    w_{j\bullet} \text{Var}^{(s)}_j[t-t_0] + \kappa_1 & 
+    \kappa_1 E^{(s)}_j[t-t_0] \\ 
+    \kappa_0 E^{(s)}_j[t-t_0] & 
+    w_{j\bullet} \text{Var}^{(s)}_j[t-t_0] + 
+    \kappa_0 E^{(s)}_j[(t-t_0)^2]
+  \end{bmatrix} \\
+  &= \frac{w_{j\bullet}}{D'}
+  \begin{bmatrix}
+    w_{j\bullet} \text{Var}^{(s)}_j[t] + \kappa_1 & 
+    0 \\ 
+    0 & 
+    (w_{j\bullet} + \kappa_0) \text{Var}^{(s)}_j[t]
+  \end{bmatrix}
+\end{align*}
+where
+$$
+  D' = (w_{j\bullet} + \kappa_0)
+      (w_{j\bullet}\text{Var}^{(s)}_j[t] + \kappa_1),
+$$
+and noting that variances are not affected by a linear translation
+and $E^{(s)}_j[(t-t_0)^2] = \text{Var}^{(s)}_j[t]$.
+We can simplify to obtain the following credibility matrix:
+$$
+  A'_j = \begin{bmatrix}
+           \frac{w_{j\bullet}}{w_{j\bullet} + \sigma^2 / \tau_0^2} & 0 \\
+           0 & \frac{w_{j\bullet}\text{Var}^{(s)}_j[t]}{w_{j\bullet}\text{Var}^{(s)}_j[t] + \sigma^2 / \tau_1^2}
+         \end{bmatrix}.
+$$
+The diagonal entries are of the form of the B&uuml;hlmann--Straub
+credibility factors.
+Hence, the credibility-weighted intercept and slope will be strictly
+between the stand-alone and collective estimates, respectively.
+
+We were able to transform the original credibility matrix $A_j$ into
+a diagonal credibility matrix $A'_j$ by translating the origin of time
+to the center of gravity.  We did all this for a particular state $j$,
+and there is no guarantee that the centers of gravity for the states 
+will all coincide with one another.
+For the Hachemeister data, the individual centers of gravity are
+
+```{r}
+CG <- tapply(W.jt * T.jt, S, sum) / W.jb
+round(CG, 3)
+```
+and notice that they are all close to each other.
+The largest difference between any two states is 
+`r round(max(outer(CG, CG, function(x,y) abs(x - y))), 3)`.
+The global center of gravity is
+
+```{r}
+j0 <- sum(W.jb * CG) / W.bb
+round(j0, 3)
+```
+
+@buhlmannCourseCredibilityTheory2005 [pp. 214] have noted that in practice
+the centers of gravity are usually close to each other and that by translating
+the time variable to the overall center of gravity, the credibility
+matrices would be nearly diagonal.
+@tbl-credibility-estimates-one-center-of-gravity
+shows the credibility estimates when we translate the origin of time to
+the global center of gravity of `r round(j0, 3)`.
+Note that the credibility matrices are nearly diagonal and the estimated 
+slope for state 4 is now between the standalone and collective values.
+Also, all other credibility estimates are between the standalone and
+collective values.
+The credibility calculations we have just completed have been
+encapsulated in the function `HBG()` (see @sec-appendix-e).
+
+```{r}
+sg <- sig.sq(X.jt, T.jt - j0, W.jt, db$state)$sigma.sq
+D <- tau(sg, X.jt, T.jt, W.jt, db$state)$D
+CW.one.center <- HBG(sg, D, X.jt, T.jt - j0, W.jt, 
+                     db$state, use.B.gls = TRUE)
+```
+
+```{r}
+#| include: false
+
+rm(sg, D)
+```
+
+```{r}
+#| echo: false
+#| label: tbl-credibility-estimates-one-center-of-gravity
+#| tbl-cap: "Credibility matrices and estimated stand-alone, credibility, and collective intercept and slope for the Hachemeister data when the time variable has been centered at the global center of gravity.  Note that the off-diagonal elements of the credibility matrices are nearly zero. For standalone, credibility, and collective estimates, the intercept is listed first and the slope second."
+
+kbl(CW.one.center$tb,
+    digits = c(0, 4, 4, 2, 2, 2),
+    row.names = FALSE,
+    col.names = c("State", "Col.1", "Col.2", "Stand-Alone",
+                  "Credibility", "Collective"),
+    align = "crrrrr",
+    format.args = list(big.mark = ','),
+    booktabs = TRUE,
+    linesep = c("", "\\addlinespace")) |>
+  add_header_above(c(" " = 1, "Credibility Matrix" = 2, 
+                     "Intercept and Slope Estimates" = 3)) |>
+  kable_classic()
+```
+
+```{r}
+#| include: false
+
+rm(CW.one.center)
+```
+
+Just as we translated the origin of time to the global center of
+gravity, we could do the time translation on a state-by-state basis.
+That would yield diagonal credibility matrices for each state.
+In
+@tbl-credibility-estimates-many-centers-of-gravity
+we have done just that, and comparing all the estimates to those in
+@tbl-credibility-estimates-one-center-of-gravity
+we can see
+that, in this example, the differences are quite small.
+
+
+```{r}
+j0 <- rep(CG, each = 12)
+sg <- sig.sq(X.jt, T.jt - j0, W.jt, db$state)$sigma.sq
+D <- tau(sg, X.jt, T.jt, W.jt, db$state)$D
+CW.many.centers <- HBG(sg, D, X.jt, T.jt - j0, W.jt, 
+                       db$state, use.B.gls = TRUE)
+```
+
+```{r}
+#| include: false
+
+rm(j0, sg, D)
+```
+
+```{r}
+#| echo: false
+#| label: tbl-credibility-estimates-many-centers-of-gravity
+#| tbl-cap: "Credibility matrices and estimated stand-alone, credibility, and collective intercept and slope for the Hachemeister data when the time variable for each state has been centered at its own center of gravity.  Note that the off-diagonal elements of the credibility matrices are exactly zero. For the stand-alone, credibility, and collective estimates, the intercept is listed first and the slope second."
+
+kbl(CW.many.centers$tb,
+    digits = c(0, 4, 4, 2, 2, 2),
+    row.names = FALSE,
+    col.names = c("State", "Col.1", "Col.2", "Stand-Alone",
+                  "Credibility", "Collective"),
+    align = "crrrrr",
+    format.args = list(big.mark = ','),
+    booktabs = TRUE,
+    linesep = c("", "\\addlinespace")) |>
+  add_header_above(c(" " = 1, "Credibility Matrix" = 2, 
+                     "Intercept and Slope Estimates" = 3)) |>
+  kable_classic()
+```
+
+```{r}
+#| include: false
+
+Y <- matrix(c(1,1,1,12), nrow = 2, ncol = 2)
+mu.st <- Y %*% reduce(CW.many.centers$B, cbind)
+mu.cw <- Y %*% reduce(CW.many.centers$CW, cbind)
+mu.co <- Y %*% CW.many.centers$B.col
+tb <- tibble(state = rep(1:5, each = 2),
+             time = rep(c(1, 12), 5),
+             SA = as.vector(mu.st),
+             CW = as.vector(mu.cw),
+             CO = rep(as.vector(mu.co), 5))
+tb3 <- pivot_longer(tb,
+                    cols = 3:5,
+                    names_to = "Type",
+                    values_to = "Prediction") |>
+  mutate(Type = factor(Type,
+                       levels = c("SA", "CW", "CO")))
+  
+tc <- tibble(state = 1:5,
+             time = CG)
+```
+
+```{r}
+#| include: false
+
+rm(Y, mu.st, mu.cw, mu.co, CG)
+```
+
+
+```{r}
+#| echo: false
+#| label: fig-credibility-estimates-centers-of-gravity
+#| fig-cap: "Credibility estimates for Hachemeister's data with time translation to the center of gravity for each state. Each state center of gravity is shown as a gray vertical line. Note that all the credibility-weighted intercepts (at the center of gravity) and slopes (dark purple) are now strictly between the stand-alone estimates (light purple) and the collective estimates (dark green)."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+cls <- c(CO = "#4dac26", CW = "#d01c8b", SA = "#f1b6da")
+ggplot(data = tb3,
+       mapping = aes(x = time,
+                     color = Type,
+                     group = state)) +
+  facet_wrap(vars(state), labeller = "label_both") +
+  geom_vline(data = tc,
+             mapping = aes(xintercept = time,
+                           group = state),
+             color = "gray") +
+  geom_line(mapping = aes(x = time,
+                          y = Prediction,
+                          group = Type)) +
+  labs(x = "Time (in Qs)",
+       y = "Severity") +
+  scale_x_continuous(breaks = (1:6) * 2,
+                     minor_breaks = NULL) +
+  coord_cartesian(ylim = c(1204.51, 2809.63)) +
+  scale_color_manual(values = cls,
+                     labels = c("Stand-Alone", "Credibility", "Collective")) +
+  guides(color = guide_legend(title = "Estimates")) +
+  theme(legend.position = "top")
+```
+
+
+
+```{r}
+#| include: false
+
+rm(tb, tb3, tc)
+```
+
+@fig-credibility-estimates-centers-of-gravity
+shows the credibility regression lines when we translate the time variable
+to the center of gravity (shown as a vertical gray line) for each state.
+Note how each intercept, at the center of gravity, is strictly between the
+state stand-alone estimate and the collective estimate.
+Also, the credibility-adjusted slopes are between the stand-alone and the
+collective estimates.
+In particular, state 4 now has a very plausible regression line.
+Compare its panel here 
+(@fig-credibility-estimates-centers-of-gravity)
+with its panel in
+@fig-credibility-estimates.
+
+
+## Summary {#sec-credibility-summary}
+
+In this chapter we discussed the idea that the data we have collected
+on some risks is more credible than the data on other risks.
+For those risks whose data is credible, we can use it with confidence to
+predict next year.
+But for those risks whose data is not fully credible, we can combine their
+own data with the data for all risks to come up with a better prediction 
+for next year.
+Credibility theory tells us how we should put together the collective's 
+data and the own risk data in an optimal way by weighting the two
+sources together.
+
+We devoted the second section to the balanced B&uuml;hlmann model and
+established that next year's premium should be a weighted average of
+a risk's own experience and the experience of the collective of all risks.
+Namely, the credibility premium has the form
+$$
+  Z \bar{X}_j + (1 - Z) \bar{X} 
+  \qquad\text{with}\qquad 
+  Z = \frac{T}{T + \sigma^2/\tau^2},
+$$
+where $\sigma^2$ and $\tau^2$ are known, in the actuarial world, as the 
+expected value of the process variance (EVPV) and as the variance of the
+hypothetical means (VHM), respectively.
+In the statistical literature, these are known as the \emph{within variance}
+and the \emph{between variance}, respectively.
+Note that as the EVPV (within variance),
+$\sigma^2$, increases, the credibility factor $Z$ decreases.
+Similarly, as the VHM (between variance),
+$\tau^2$, decreases toward zero, the credibility factor, $Z$, decreases.
+
+The balanced B&uuml;hlmann model is critical to our understanding of 
+credibility procedures, but it is not a very useful model in practice as
+it assumes that all risks have the same exposure and are observed over
+the same number of periods.
+
+The third section focused on extending the balanced B&uuml;hlmann model to
+a practically useful model known as the B&uuml;hlmann--Straub model.
+In this model, each risk comes with its own exposure weight, and not all
+risks need to be observed over the same time period.
+With these extensions, the credibility premium is of the same form as in
+the balanced B&uuml;hlmann model, namely,
+$$
+  Z_j X_{j\circ} + (1 - Z_j) X_z
+  \qquad\text{with}\qquad
+  Z_j = \frac{w_{j\bullet}}{w_{j\bullet} + \sigma^2/\tau^2}.
+$$
+Again, we see that the credibility premium has the same weighted average
+form as in the balanced B&uuml;hlmann model, as do the credibility
+factors.
+
+In the last section, we explored a credibility regression model first
+proposed by Hachemeister.
+Here the basic idea is that we have data on several risks and we would 
+like to estimate a regression line on this data.
+We could ignore that data came from individual risk classes and fit one regression
+line to all of the data.
+But that approach discards important information.
+We could also fit individual regression lines on each risk class.
+For some risk classes the volume of information would be large enough to give us
+a "robust" regression line, but for some of them the volume would be small
+and we might get some spurious results.
+
+In this situation credibility theory can be applied to estimate the
+regression coefficients as weighted averages of the individual regression
+coefficients and the collective regression coefficients.
+Unfortunately, a naive application of credibility to Hachemeister's data
+led to implausible results for state 4, where the credibility-weighted trend
+for that state was both lower than its stand-alone and collective estimates.
+
+This implausible result arises from the fact that in this case the
+credibility factors are $2 \times 2$ matrices with nonzero entries in all
+four positions, and thus the credibility-weighted intercept and slope are a 
+complex combination of \emph{both} stand-alone and collective intercepts 
+and slopes.
+
+Obtaining plausible estimates required two key insights
+[@buhlmannCredibilityRegressionCase1997]:
+
+- assume that the variance-covariance matrix of the intercept and slope
+  random coefficients is diagonal, and
+- center the time variable at each risk class time center of gravity.
+
+With those insights, the credibility factors are $2 \times 2$ diagonal
+matrices, and so the credibility-weighted intercept and slope are each 
+calculated separately, yielding estimates that are always between the
+individual risk and the collective values.
+

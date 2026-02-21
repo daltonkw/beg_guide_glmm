@@ -1,0 +1,590 @@
+---
+title: "Practical Mixed Models for Actuaries Ch. 2 - Generalized Linear Model Review"
+format: html
+---
+
+## Setup
+
+```{r}
+#| label: setup
+
+library(tidyverse)
+library(statmod)
+library(patchwork)
+library(GLMsData)
+
+data(lungcap, package = "GLMsData")
+```
+
+## EDA
+
+| Item | Variable | Type | Description |
+|-----------:|:-----------|:-----------|:-----------------------------------|
+| 1 | FEV | Continuous | The forced expiratory volume in liters. |
+| 2 | Age | Integer | Age of subject in completed years. |
+| 3 | Ht | Continuous | Height of the subject in inches. |
+| 4 | Gender | Binary | The gender of the subject. |
+| 5 | Smoke | Binary | The smoking status of the subject: Nonsmokers are coded with 0 and smokers are coded with 1. |
+
+: Names, types, and descriptions of the variables available in the dataset. {#tbl-lungcap-vars}
+
+```{r}
+#| label: fig-age-ht-fev
+#| fig-cap: "Age and height versus FEV. The red circles denote smoking subjects and the plus signs represent nonsmoking subjects. The smooth trend curves, which ignore smoking status, suggest nonlinear relationships with the response variable."
+#| fig-width: 8
+#| fig-height: 4
+
+lungcap <- lungcap |>
+  mutate(Smoker = factor(Smoke, levels = c(0, 1), labels = c("No", "Yes")))
+
+p1 <- ggplot(
+    lungcap, aes(x = Age, y = FEV)) +
+  geom_jitter(
+    aes(shape = Smoker, colour = Smoker),
+    width = 0.3, height = 0, size = 1.5) +
+  geom_smooth(method = "loess", se = FALSE, colour = "steelblue", linewidth = 0.8) +
+  scale_shape_manual(values = c("No" = 3, "Yes" = 16)) +
+  scale_colour_manual(values = c("No" = "grey40", "Yes" = "red")) +
+  labs(
+    x = "Age (jittered) (in years)",
+    y = "FEV (in liters)",
+    shape = "Smoker?",
+    colour = "Smoker?"
+  ) +
+  theme_bw()
+
+p2 <- ggplot(
+    lungcap, aes(x = Ht, y = FEV)) +
+  geom_point(
+    aes(shape = Smoker, colour = Smoker),
+    size = 1.5
+  ) +
+  geom_smooth(method = "loess", se = FALSE, colour = "steelblue", linewidth = 0.8) +
+  scale_shape_manual(values = c("No" = 3, "Yes" = 16)) +
+  scale_colour_manual(values = c("No" = "grey40", "Yes" = "red")) +
+  labs(
+    x = "Height (in inches)",
+    y = "FEV (in liters)",
+    shape = "Smoker?",
+    colour = "Smoker?"
+  ) +
+  theme_bw()
+
+p1 + p2 + plot_layout(guides = "collect") &
+  theme(legend.position = "top")
+```
+
+One (if not **The**) key relationships in a GLM is the relationship between the mean of the response and its variance, the **mean-variance** relationship. This uniquely determines the exponential family of distributions that we should use.
+
+$$
+\text{Var}(y)=\phi \mu^b
+$$
+
+$$
+\ln(\text{Var}(y))=\ln(\phi)+b\ln(\mu)
+$$
+
+So, we can use our data and OLS to estimate the value of b.
+
+```{r}
+
+lungcap$Ht.bin <- cut_number(lungcap$Ht, n = 7)
+
+mv <- lungcap |>
+    dplyr::group_by(Ht.bin) |>
+    dplyr::summarise(sz = n(),
+                     mn = mean(FEV),
+                     vr = var(FEV)
+                    )
+
+fm <- lm(log(vr) ~ log(mn),
+         data = mv,
+         weights = sz)
+
+print(summary(fm))
+```
+
+$b \sim 2$ suggests we should model this as a gamma-distributed random variable.
+
+```{r}
+
+  
+lungcap$Ht.bin <- cut_number(lungcap$Ht, n = 20)
+
+mv <- lungcap |>
+    dplyr::group_by(Ht.bin) |>
+    dplyr::summarise(sz = n(),
+                     mn = mean(FEV),
+                     vr = var(FEV)
+                    )
+
+fm <- lm(log(vr) ~ log(mn),
+         data = mv,
+         weights = sz)
+
+print(summary(fm))
+```
+
+```{r}
+#| label: fig-fev-variability
+#| fig-cap: "Age and height versus FEV. The data has been rendered in muted gray and pink. The arrows on both panels depict the variability of FEV for small, medium, and large values of FEV. The increase in variability is evident."
+#| fig-width: 8
+#| fig-height: 4
+
+age_bins <- lungcap |>
+  dplyr::select(Age, FEV) |> 
+  dplyr::filter(Age %in% c(5, 10, 15)) |> 
+  dplyr::reframe(
+    x = min(Age),
+    ymin = min(FEV),
+    ymax = max(FEV),
+    .by = Age
+  ) |> 
+  drop_na()
+
+ht_bins <- lungcap |>
+  dplyr::select(Ht, FEV) |>
+  dplyr::filter(Ht %in% c(50, 60, 70)) |> 
+  dplyr::reframe(
+    x = min(Ht),
+    ymin = min(FEV),
+    ymax = max(FEV),
+    .by = Ht
+  ) |>
+  drop_na()
+
+p1 <- ggplot(lungcap, aes(x = Age, y = FEV)) +
+  geom_jitter(
+    aes(shape = Smoker, colour = Smoker),
+    width = 0.5, height = 0, size = 1.5, alpha = 0.3
+  ) +
+  geom_segment(
+    data = age_bins,
+    aes(x = x, xend = x, y = ymin, yend = ymax),
+    inherit.aes = FALSE,
+    arrow = arrow(length = unit(0.08, "inches"), ends = "both"),
+    colour = "red", linewidth = 0.6
+  ) +
+  scale_shape_manual(values = c("No" = 3, "Yes" = 25)) +
+  scale_colour_manual(values = c("No" = "grey70", "Yes" = "red")) +
+  labs(x = "Age [jittered] (in years)", y = "FEV (in liters)") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+p2 <- ggplot(lungcap, aes(x = Ht, y = FEV)) +
+  geom_point(
+    aes(shape = Smoker, colour = Smoker),
+    size = 1.5, alpha = 0.3
+  ) +
+  geom_segment(
+    data = ht_bins,
+    aes(x = x, xend = x, y = ymin, yend = ymax),
+    inherit.aes = FALSE,
+    arrow = arrow(length = unit(0.08, "inches"), ends = "both"),
+    colour = "red", linewidth = 0.6
+  ) +
+  scale_shape_manual(values = c("No" = 3, "Yes" = 25)) +
+  scale_colour_manual(values = c("No" = "grey70", "Yes" = "red")) +
+  labs(x = "Height (in inches)", y = "FEV (in liters)") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+p1 + p2
+```
+
+_The relationship between the size of the lungs and height is much better defined than the size of lungs and age._
+
+We have not yet explored how gender and smoking status may be related to the response variable. We can summarize our data by gender and smoker status and compute mean age, height, and FEV.
+
+```{r}
+#| label: tbl-gender-smoker-summary
+#| tbl-cap: "Mean age, height, and FEV by gender and smoker status. The number of observations (Obs.) in each cell is also given."
+
+library(gt)
+
+lungcap |>
+  mutate(
+    Gender = case_match(Gender, "F" ~ "Female", "M" ~ "Male")
+  ) |>
+  summarise(
+    Obs = n(),
+    Age = round(mean(Age), 1),
+    Height = round(mean(Ht), 1),
+    FEV = round(mean(FEV), 2),
+    .by = c(Gender, Smoker)
+  ) |>
+  pivot_wider(
+    id_cols = Gender,
+    names_from = Smoker,
+    values_from = c(Obs, Age, Height, FEV),
+    names_glue = "{Smoker}_{.value}",
+    names_vary = "slowest"
+  ) |>
+  gt() |>
+  tab_spanner(
+    label = "Mean",
+    columns = c(No_Age, No_Height, No_FEV),
+    id = "nonsmoker_mean"
+  ) |>
+  tab_spanner(
+    label = "Mean",
+    columns = c(Yes_Age, Yes_Height, Yes_FEV),
+    id = "smoker_mean"
+  ) |>
+  tab_spanner(
+    label = "Nonsmoker",
+    columns = starts_with("No_")
+  ) |>
+  tab_spanner(
+    label = "Smoker",
+    columns = starts_with("Yes_")
+  ) |>
+  cols_label(
+    Gender = "Gender",
+    No_Obs = "Obs.",
+    No_Age = "Age",
+    No_Height = "Height",
+    No_FEV = "FEV",
+    Yes_Obs = "Obs.",
+    Yes_Age = "Age",
+    Yes_Height = "Height",
+    Yes_FEV = "FEV"
+  )
+```
+
+## Modeling and Diagnostics
+
+### OLS Model
+
+Probably not appropriate for this data.
+
+```{r}
+#| label: ols-fit
+
+ols.fit <- glm(FEV ~ Ht, data = lungcap, family = gaussian(link = "identity"))
+
+lungcap <- lungcap |> 
+  dplyr::mutate(olsfit.mu = predict(ols.fit, type = "response"),
+                olsfit.resid = resid(ols.fit, type = "deviance"))
+
+```
+
+
+```{r}
+#| label: ols-residual-fit
+#| fig-cap: "Fitted values versus deviance residuals for an OLS model for FEV that includes height as an explanatory variable.  Note the strong pattern in both panels telling us that our model is not adequate."
+#| fig-width: 8
+#| fig-height: 4
+
+p1 <- ggplot(
+    lungcap, aes(x = FEV, y = olsfit.resid)) +
+      geom_point(alpha = 0.3, size = 2) +
+  labs(
+    y = "Residuals",
+    x = "FEV (in liters)"
+  ) +
+  theme_bw()
+
+p2 <- ggplot(
+    lungcap, aes(x = FEV, y = abs(olsfit.resid))) +
+      geom_point(alpha = 0.3, size = 2) +
+      geom_smooth(method = "loess", formula = "y ~ x") +
+  labs(
+    y = "Residuals",
+    x = "Fitted values"
+  ) +
+  theme_bw()
+
+p1 + p2
+```
+
+### Gamma Model(s)
+
+```{r}
+#| label: gi.H.fit
+
+gi.H.fit <- glm(FEV ~ Ht, 
+                data = lungcap, 
+                family = Gamma(link = "identity"))
+
+(sgi.H.fit <- summary(gi.H.fit))
+```
+
+_predictive simulation_
+
+Borrow from Bayesian approaches (Gelman and Hill) - first fit the data, then replicate the data from that fitted model and compare the actual data to the replicated data.  _If we can distinguish the actual data from the replicated data, then our model is not a very good representation of the actual data._
+
+```{r}
+#| label: gi.H.fit-predictive-sim
+
+set.seed(19390349)
+n <- nrow(lungcap)
+disp <- sgi.H.fit$dispersion
+lungcap <- lungcap |> 
+  dplyr::mutate(
+    giHfit.mu = predict(gi.H.fit, type = "response"),
+    giHfit.rp1 = rgamma(n, shape = 1/disp, scale = giHfit.mu * disp),
+    giHfit.rp2 = rgamma(n, shape = 1/disp, scale = giHfit.mu * disp),
+    giHfit.rp3 = rgamma(n, shape = 1/disp, scale = giHfit.mu * disp),
+  )
+```
+
+
+```{r}
+#| label: gi.H.fit-predictive-sim-plot
+#| fig-cap: "Predictive simulation for the gamma model with height as the only explanatory variable."
+#| fig-width: 8
+#| fig-height: 4
+
+p1 <- ggplot(lungcap, aes(x = Ht, y = FEV)) +
+  geom_jitter(alpha = 0.3, size = 2, width = 0.5) +
+  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE) +
+  labs(
+    y = "FEV (in liters)",
+    x = "Height (in inches)"
+  ) +
+  theme_bw()
+
+p2 <- ggplot(lungcap, aes(x = Ht, y = giHfit.rp1)) +
+  geom_jitter(alpha = 0.3, size = 2, width = 0.5) +
+  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE) +
+  labs(
+    y = "FEV (in liters)",
+    x = "Height (in inches)"
+  ) +
+  theme_bw()
+
+p3 <- ggplot(lungcap, aes(x = Ht, y = giHfit.rp2)) +
+  geom_jitter(alpha = 0.3, size = 2, width = 0.5) +
+  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE) +
+  labs(
+    y = "FEV (in liters)",
+    x = "Height (in inches)"
+  ) +
+  theme_bw()
+
+p4 <- ggplot(lungcap, aes(x = Ht, y = giHfit.rp3)) +
+  geom_jitter(alpha = 0.3, size = 2, width = 0.5) +
+  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE) +
+  labs(
+    y = "FEV (in liters)",
+    x = "Height (in inches)"
+  ) +
+  theme_bw()
+
+p1 + p2 + p3 + p4 + plot_layout(nrow = 2, byrow = TRUE)
+```
+
+
+```{r}
+#| label: gl.H.fit
+
+lungcap <- lungcap |>
+  dplyr::mutate(Ht.sq = lungcap$Ht^2)
+
+gi.H2.fit <- glm(FEV ~ Ht + Ht.sq, data = lungcap, family = Gamma(link = "identity"))
+gl.H.fit <- glm(FEV ~ Ht, data = lungcap, family = Gamma(link = "log"))
+
+```
+
+```{r}
+
+print(round(coef(gi.H2.fit), 5))
+```
+
+
+```{r}
+
+print(round(coef(gl.H.fit), 5))
+```
+
+
+```{r}
+#| label: gi.H.fit-predictive-sim-plot
+#| fig-cap: "Working Response vs. Linear Predictors"
+#| fig-width: 8
+#| fig-height: 4
+
+lungcap <- lungcap |>
+  dplyr::mutate(gi.H2.qres = statmod::qres.gamma(gi.H2.fit),
+                gi.H2.mu = predict(gi.H2.fit, type = "response"),
+                gl.H.qres = statmod::qres.gamma(gl.H.fit),
+                gl.H.mu = predict(gl.H.fit, type = "response")
+                )
+
+# extract what we need to create the working response (see below)
+eta_quad <- predict(gi.H2.fit, type = "link")       # linear predictor
+e_quad   <- residuals(gi.H2.fit, type = "working")  # working residuals
+z_quad   <- eta_quad + e_quad                       # working response
+
+eta_log  <- predict(gl.H.fit, type = "link")
+e_log    <- residuals(gl.H.fit, type = "working")
+z_log    <- eta_log + e_log
+
+p1 <- ggplot(lungcap, aes(x = FEV, y = gi.H2.qres)) +
+  geom_point(alpha = 0.3, size = 2) +
+  labs(
+    x = "FEV (in liters)",
+    y = "Quantile Residuals",
+    title = "Quadratic Model"
+  ) +
+  theme_bw()
+
+p2 <- ggplot(lungcap, aes(x = FEV, y = gl.H.qres)) +
+  geom_point(alpha = 0.3, size = 2) +
+  labs(
+    x = "FEV (in liters)",
+    y = "Quantile Residuals",
+    title = "Log-Link Model"
+  ) +
+  theme_bw()
+
+p3 <- ggplot(
+        data.frame(z = z_quad, eta = eta_quad), aes(x = z, y = eta)
+      ) +
+      geom_point(colour = "grey60", size = 2) +
+      geom_abline(slope = 1, intercept = 0, colour = "red") +
+      labs(x = "Working Response", y = "Linear Predictor", title = "Quadratic Model") +
+    theme_bw()
+
+p4 <- ggplot(
+        data.frame(z = z_log, eta = eta_log), aes(x = z, y = eta)
+      ) +
+      geom_point(colour = "grey60", size = 2) +
+      geom_abline(slope = 1, intercept = 0, colour = "red") +
+      labs(x = "Working Response", y = "Linear Predictor", title = "Log-Link Model") +
+    theme_bw()
+
+p1 + p2 + p3 + p4 + plot_layout(nrow = 2, byrow = TRUE)
+```
+
+Linear predictor $\hat{\eta}_i$.  And the _Working Response_ is $z_i = \hat{\eta}_i + \hat{\epsilon}_i$.  The _working residuals_ are from the residual from the last iteration of the IRLS algorithm.
+
+GLMs are fitted by IRLS, which at each iteration constructs a working response:
+
+$z_i = \hat{\eta}_i + (y_i - \hat{\mu}i) \frac{d\eta}{d\mu}\bigg|{\hat{\mu}_i}$
+
+and then regresses $z$ on the covariates via weighted least squares. That derivative $d\eta/d\mu$ is entirely determined by the link function.  If the link is correctly specified, the linearization it provides is appropriate, and $z_i$ and $\hat{\eta}_i$ should have an approximately linear relationship with slope 1 — the points cluster around $y = x$. If the link is wrong, the derivative mis-scales the residuals and you'll see systematic curvature away from the diagonal.
+
+
+```{r}
+
+p1 <- ggplot(lungcap, aes(x = Ht, y = gi.H2.qres)) +
+  geom_point(alpha = 0.3, size = 2) +
+  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE) +
+  labs(
+    x = "Height (in inches)",
+    y = "Quantile Residuals",
+    title = "Quadratic Model"
+  ) +
+  theme_bw()
+
+p2 <- ggplot(lungcap, aes(x = Ht, y = gl.H.qres)) +
+  geom_point(alpha = 0.3, size = 2) +
+  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE) +
+  labs(
+    x = "Height (in inches)",
+    y = "Quantile Residuals",
+    title = "Log-Link Model"
+  ) +
+  theme_bw()
+
+p1 + p2 + plot_layout(nrow = 1)
+```
+
+Current best model is Gamma with the Log-link.
+
+$$
+\log\left(\mathbb{E}\left[\text{FEV}\right]\right)=\beta_0 + \beta_1 \text{Height}
+$$
+
+### Multivariate Model
+
+```{r}
+
+gl.HGS.fit <- glm(FEV ~ Smoke + Gender + Ht, data = lungcap, family = Gamma(link = "log"))
+sgl.HGS.fit <- summary(gl.HGS.fit)
+print(round(coef(sgl.HGS.fit), 4))
+```
+
+No evidence in the data to suggest that Smoke is different from zero.  It's important to point out though that; _the results **do not show** that children who smoke do not have impaired lung capacity_.
+
+```{r}
+data.frame(dplyr::filter(lungcap, between(FEV, 1, 5)) |> 
+  dplyr::select(FEV, gl.HGS.qres))
+```
+
+```{r}
+
+lungcap <- lungcap |>
+  dplyr::mutate(gl.HGS.qres = statmod::qres.gamma(gl.HGS.fit),
+                gl.HGS.mu = predict(gl.HGS.fit, type = "response")
+                )
+
+p1 <- ggplot(dplyr::filter(lungcap, between(FEV, 1, 5)) |> dplyr::select(FEV, gl.HGS.qres), 
+             aes(x = FEV, y = gl.HGS.qres)) +
+  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE) +
+  geom_point(alpha = 0.3, size = 2) +
+  labs(
+    x = "FEV (in liters)",
+    y = "Quantile Residuals"
+  ) +
+  theme_bw()
+
+p2 <- ggplot(dplyr::filter(lungcap, between(FEV, 1, 5)) |> dplyr::select(FEV, gl.HGS.qres), 
+             aes(x = FEV, y = abs(gl.HGS.qres))) +
+  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE) +
+  geom_point(alpha = 0.3, size = 2) +
+  labs(
+    x = "FEV (in liters)",
+    y = "abs(Quantile Residuals)"
+  ) +
+  theme_bw()
+
+p1 + p2 + plot_layout(nrow = 1)
+```
+
+```{r}
+
+p1 <- ggplot(dplyr::filter(lungcap, between(Ht, 45, 75)) |> dplyr::select(Ht, gl.HGS.qres), 
+             aes(x = Ht, y = gl.HGS.qres)) +
+  geom_smooth(method = "loess", formula = "y ~ x", se = FALSE) +
+  geom_point(alpha = 0.3, size = 2) +
+  labs(
+    x = "FEV (in liters)",
+    y = "Quantile Residuals"
+  ) +
+  theme_bw()
+
+p2 <- ggplot(lungcap, aes(x = Gender, y = gl.HGS.qres)) +
+  geom_boxplot() +
+  labs(
+    x = "Gender",
+    y = "Quantile Residuals"
+  ) +
+  theme_bw()
+
+p3 <- ggplot(lungcap, aes(x = Smoker, y = gl.HGS.qres)) +
+  geom_boxplot() +
+  labs(
+    x = "Smoke",
+    y = "Quantile Residuals"
+  ) +
+  theme_bw()
+
+shape_est <- 1 / summary(gl.HGS.fit)$dispersion
+lungcap <- lungcap |> mutate(gl.HGS.qresid = qresiduals(gl.HGS.fit))
+
+# The more informative approach — and what Figure 2.6 in the PDF actually does — is to use quantile residuals and QQ-plot against the normal distribution, since quantile residuals are standard normal under a correct model:
+
+p4 <- ggplot(lungcap, aes(sample = gl.HGS.qresid)) +
+        geom_qq() + 
+        geom_qq_line(color = "red") +
+        labs(
+          x = "Theoretical Quantiles",
+          y = "Sample Quantiles"
+        ) +
+        theme_bw()
+
+p1 + p2 + p3 + p4 + plot_layout(nrow = 2, byrow = TRUE)
+```

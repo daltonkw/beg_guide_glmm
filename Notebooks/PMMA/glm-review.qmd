@@ -1,0 +1,1660 @@
+
+# Generalized Linear Models {#sec-glm-review}
+
+```{r}
+#| include: false
+#| message: false
+
+library(tidyverse)
+library(patchwork)
+library(kableExtra)
+library(GLMsData)
+library(statmod)
+library(ggpubr)
+```
+
+```{r}
+#| include: false
+
+options(width = 70)
+```
+
+
+## Introduction
+
+Actuaries are well acquainted with 
+GLMs, and in this chapter we provide a quick review
+of the main ideas and concepts as we work through a
+non-insurance example.
+
+In the late 1970s and early 1980s, researchers in Boston
+were interested in understanding the effects of maternal
+smoking on the pulmonary function of children through a
+seven-year longitudinal study
+[@tagerEffectParentalCigarette1979;
+ @tagerLongitudinalStudyEffects1983].
+The study subjects and their families were interviewed
+multiple times.
+For children 10 years or younger, the parents answered all
+questions except those regarding their smoking history.
+All other children answered all questions on their own.
+During pulmonary testing---a time when parents were not
+present---researchers asked children about their smoking
+history.
+
+The longitudinal analysis showed that after adjusting for
+explanatory variables, such as age, height, change in height,
+and the smoking status of the child, maternal smoking hurts the
+development of the child's pulmonary function.
+A cross-sectional dataset from that investigation is
+available in the `GLMsData` package under the
+name `lungcap`. 
+
+```{r}
+#| include: true
+
+data(lungcap, package = "GLMsData")
+```
+
+The dataset has `r nrow(lungcap)` observations and
+five variables.
+The pulmonary function of the subjects was assessed
+through their lung capacity, which was
+measured via their forced expiratory volume.
+The forced expiratory volume is the amount of air
+a subject can expel from their lungs in the first
+second of a forceful exhalation.
+A larger volume of exhaled air signals better pulmonary
+function.
+
+@tbl-lungcap-variables shows the name, type, and 
+description of each variable in the dataset.
+Forced expiratory volume, `FEV`, is our response variable,
+and the indicator variable for smoking, `Smoke`, is the 
+principal variable of interest.
+The age (`Age`), gender (`Gender`), and height (`Ht`)
+of each child are variables that may be related to the
+response, and we want to control for them.
+
+```{r}
+#| echo: false
+#| label: tbl-lungcap-variables
+#| tbl-cap: "Names, types, and descriptions of the variables available in the dataset."
+tb <- tibble(Item = c(as.character(1:5), "", ""),
+             Variable = c("FEV", "Age", "Ht", "Gender", "Smoke", "", ""),
+             Type = c("Continuous", "Integer", "Continuous",
+                      "Binary", "Binary", "", ""),
+             Description = c("The forced expiratory volume in liters.",
+                             "Age of subject in completed years.",
+                             "Height of the subject in inches.",
+                             "The gender of the subject.",
+                             "The smoking status of the subject:",
+                             "Non-smokers are coded with 0 and",
+                             "smokers are coded with 1."))
+
+kbl(tb,
+    booktabs = TRUE,
+    align = "clll",
+    linesep = "") |>
+  kable_classic()
+```
+
+```{r}
+#| include: false
+
+rm(tb)
+```
+
+
+
+
+## Exploratory Data Analysis
+
+To work effectively with data we first need to
+understand what we have available to work with.
+Exploratory data analysis employs a set of techniques
+to help us understand and uncover what the data
+we have may be saying.
+It is not about confirming that a perceived pattern
+is true.
+For that there are other techniques.
+It is about looking closely at the data to find out
+what we can do with it.
+It is about learning and finding insights from the
+data and being able to describe them as easily as
+possible.
+In this section, we explore the lung capacity data.
+The response variable is forced expiratory volume,
+`FEV`, and the remaining variables may help us 
+explain it.
+
+The `Age` variable ranges from `r min(lungcap$Age)`
+to `r max(lungcap$Age)` years old, and the
+height variable is between `r min(lungcap$Ht)` and
+`r max(lungcap$Ht)` inches.
+Thus we have a broad spectrum of body sizes, and we
+should expect `FEV` to vary significantly as age
+and height varies.
+@tbl-lungcap-numeric-summary-stats
+shows summary statistics for the numeric variables.
+Note that the difference from the median (Q2) down
+to the first quartile (Q1) and up to the third quartile
+(Q3) is similar for each variable.
+This shows us that the bulk of the data, in each case,
+is fairly symmetric.
+
+```{r}
+#| echo: false
+#| label: tbl-lungcap-numeric-summary-stats
+#| tbl-cap: "Summary statistics for the numeric variables in the lung capacity dataset.  Q1 is the first quartile, Q2 is the median, and Q3 is the third quartile."
+
+stats <- rbind(summary(lungcap$FEV),
+               summary(lungcap$Age),
+               summary(lungcap$Ht))
+dimnames(stats) <- list(c("FEV (in liters)", "Age (in years)", 
+                          "Height (in inches)"),
+                        c("Min", "Q1", "Q2", "Mean", "Q3", "Max"))
+kbl(round(stats, 2),
+    booktabs = TRUE) |>
+  kable_classic()
+```
+
+```{r}
+#| include: false
+
+rm(stats)
+```
+
+During these ages, children grow
+significantly, and `Age` and `Ht` should
+be strongly related to each other; in fact,
+their linear correlation coefficient is equal to
+`r round(cor(lungcap$Age, lungcap$Ht), 2)`.
+Thus, including both of these variables in a
+linear model may pose some estimation
+problems.
+
+The remaining predictor variables are smoking status
+(`Smoke`) and gender (`Gender`).
+Both are binary variables.
+`Smoke` is an indicator variable where a value of 1
+tells us that the child smokes and a value of zero
+says they do not smoke.  There are `r sum(lungcap$Smoke)`
+children who smoke in our dataset (about 10%).
+For the variable `Gender`, the split between
+female and male is 
+`r round(sum(lungcap$Gender == "F")/nrow(lungcap) * 100, 0)`%
+and
+`r round(sum(lungcap$Gender == "M")/nrow(lungcap) * 100, 0)`%,
+respectively.
+
+
+```{r}
+#| echo: false
+#| message: false
+#| label: fig-age-height-smoke-vs-fev
+#| fig-cap: "Age and height versus FEV. The red circles denote smoking subjects and the plus signs represent nonsmoking subjects. The smooth trend curves, which ignore smoking status, suggest nonlinear relationships with the response variable."
+
+p <- ggplot(data = lungcap,
+            mapping = aes(x = Age,
+                          y = FEV,
+                          shape = as.factor(Smoke),
+                          color = as.factor(Smoke))) +
+  geom_jitter(width = 0.2, height = 0) +
+  geom_smooth(mapping = aes(x = Age, y = FEV), 
+              se = FALSE, 
+              inherit.aes = FALSE) +
+  scale_shape_manual(name = "Smoker?", 
+                     values = c(3, 16), 
+                     labels = c("No", "Yes")) +
+  scale_color_manual(name = "Smoker?", 
+                     values = c("black", "red"), 
+                     labels = c("No", "Yes")) +
+  labs(x = "Age [jittered] (in years)",
+       y = "FEV (in liters)")
+
+q <- ggplot(data = lungcap,
+            mapping = aes(x = Ht,
+                          y = FEV,
+                          shape = as.factor(Smoke),
+                          color = as.factor(Smoke))) +
+  geom_jitter(width = 0.2, height = 0) +
+  geom_smooth(mapping = aes(x = Ht, y = FEV), 
+              se = FALSE, 
+              inherit.aes = FALSE) +
+  scale_shape_manual(name = "Smoker?", 
+                     values = c(3, 16), 
+                     labels = c("No", "Yes")) +
+  scale_color_manual(name = "Smoker?", 
+                     values = c("black", "red"), 
+                     labels = c("No", "Yes")) +
+  labs(x = "Height (in inches)",
+       y = "FEV (in liters)")
+
+ggarrange(p, q,
+          nrow = 1,
+          ncol = 2,
+          common.legend = TRUE,
+          legend = "top")
+```
+
+```{r}
+#| include: false
+
+rm(p, q)
+```
+
+In @fig-age-height-smoke-vs-fev we see that both
+`Age` (left-hand panel) and `Ht` (right-hand panel)
+have a strong nonlinear relationship with the response
+variable `FEV`.
+The nonlinear smooth curves ignore the information about
+which subjects smoke and which do not.
+
+The left-hand panel shows that the relationship between
+`Age` and `FEV` resembles an elongated `S` curve.
+Also, we can see that as age increases, the cloud of points
+shows more dispersion as we move from the lower-left corner
+to the upper-right corner.
+
+Switching to the right-hand panel, we see that the
+relationship between
+height (`Ht`) and FEV is also nonlinear,
+but the nonlinear pattern is simpler.
+In this case, it resembles part of a quadratic or exponential curve
+where increases in height lead to larger lung volumes.
+The cloud of points in this case is also more compact than the
+one, based on age, in the left-hand panel.
+These observations lead us to favor a model that uses
+height over one that uses age.
+
+Also note that as the mean value of `FEV` increases in both
+scatterplots, the variability in `FEV` also increases.
+In other words, both plots show a *fanning out* of `FEV` as
+`FEV` increases.
+This relationship between the mean of the response and 
+its variance, known as the **mean--variance** relationship,
+is
+extremely important in GLMs, as it determines
+the member of the exponential family of distributions that we
+should use for our response variable.
+
+The relationship between the mean and the variance of the
+response variable for many members of the exponential family
+is given by
+$$
+  \text{Var}[y] = \phi \mu^b,
+$$ {#eq-mean-var-relationship}
+where $\phi$ is the dispersion parameter, $\mu$ is the mean
+of the distribution, and $b$ is a non-negative number.
+Well-known distributions correspond to different values of
+the exponent $b$.
+
+For example, if $b = 0$, then we have the
+normal, or Gaussian, distribution.
+If $b = 1$ and $\phi = 1$, then the response variable is Poisson distributed,
+and if $b = 2$, then it is gamma distributed.
+Other values of $b$ are possible, and not all members of the
+exponential family have a mean--variance relationship given
+by @eq-mean-var-relationship (e.g., the binomial and negative
+binomial distributions).
+
+Note that by applying a logarithm to both sides of
+@eq-mean-var-relationship we get the following equation:
+$$
+  \ln\left( \text{Var}[y] \right) = \ln(\phi) + b \ln(\mu).
+$$ {#eq-log-mean-variance-relationship}
+Therefore, we can use our data and ordinary least squares (OLS) to
+estimate the value of $b$.
+
+For example, we can proceed as follows.
+First, create seven bins of approximately equal size
+for the height variable.
+
+```{r}
+lungcap$Ht.bin <- cut_number(lungcap$Ht, n = 7)
+```
+
+Using the height bins, summarize the value of `FEV` for each bin
+by calculating the size of the bin, the mean, and the variance.
+Store the values in the object `mv` (mean--variance).
+
+```{r}
+mv <- lungcap |>
+  group_by(Ht.bin) |>
+  summarize(sz = n(),
+            mn = mean(FEV),
+            vr = var(FEV))
+```
+
+Now estimate a linear regression equation where the response
+variable is the logarithm of the variance and the predictor variable
+is the logarithm of the mean.
+
+```{r}
+fm <- lm(log(vr) ~ log(mn),
+         data = mv,
+         weights = sz)
+sfm <- summary(fm)
+round(sfm$coef[,1:2], 3)
+```
+
+The coefficient of the logarithm of the mean is our estimate
+of the value of $b$.
+In this case, $b = `r round(coef(fm)[2],2)`$, and since it is
+close to $2$ in value, this suggests that we should model the
+forced expiratory volume, `FEV`, as a gamma distributed random
+variable.
+An approximate 95% confidence interval for the value of $b$ is
+equal to $2.015 \pm 2 \times 0.260 = (1.495, 2.535)$.
+Clearly, this confidence interval does not include zero, and therefore
+using a normal distribution for the response variable would not
+be a reasonable choice---that is, the normal distribution is not supported
+by the data.
+
+But what about other choices?
+Perhaps a Poisson distribution $(b = 1)$ or an inverse Gaussian
+distribution $(b = 3)$ would be an appropriate choice.
+Well, the endpoints of the confidence interval are closer to
+these distributions, and so one could try them out.
+
+```{r}
+#| include: false
+
+rm(sfm, fm, mv, bks, n)
+```
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Redo the mean--variance analysis with a different number
+of bins.  Try various choices, maybe $n = 3, 5, 10, 20$.
+Would you arrive at a similar conclusion?
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+Let $n = 20$ and create this many bins for the height variable
+
+```{r}
+lungcap$Ht.bin <- cut_number(lungcap$Ht, n = 20)
+```
+
+Next, we group the data by each bin, and compute the mean `mn` 
+and the variance `vr` for each group.
+We also add the number of observations in each group `sz`.
+
+```{r}
+mv <- lungcap |>
+  group_by(Ht.bin) |>
+  summarize(sz = n(),
+            mn = mean(FEV),
+            vr = var(FEV))
+```
+
+Finally, we estimate an OLS regression line
+
+```{r}
+fm <- lm(log(vr) ~ log(mn),
+         data = mv,
+         weights = sz)
+round(summary(fm)$coef[,1:2], 3)
+```
+
+The estimated value of $b$ in this case is 2.110, and so we
+arrive at the same conclusion.
+
+```{r}
+#| include: false
+
+rm(fm, mv)
+```
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Redo the mean--variance analysis with a different number
+of bins.  Try various choices, maybe $n = 3, 5, 10, 20$.
+Would you arrive at a similar conclusion?
+
+:::
+
+::: {.pmmsol}
+
+Let $n = 20$ and create this many bins for the height variable
+
+```{r}
+lungcap$Ht.bin <- cut_number(lungcap$Ht, n = 20)
+```
+
+Next, we group the data by each bin, and compute the mean `mn` 
+and the variance `vr` for each group.
+We also add the number of observations in each group `sz`.
+
+```{r}
+mv <- lungcap |>
+  group_by(Ht.bin) |>
+  summarize(sz = n(),
+            mn = mean(FEV),
+            vr = var(FEV))
+```
+
+Finally, we estimate a OLS regression line
+
+```{r}
+fm <- lm(log(vr) ~ log(mn),
+         data = mv,
+         weights = sz)
+round(summary(fm)$coef[,1:2], 3)
+```
+
+The estimated value of $b$ in this case is 2.110, and so we
+arrive at the same conclusion.
+
+```{r}
+#| include: false
+
+rm(fm, mv)
+```
+
+:::
+
+:::
+
+
+We also could have anticipated that our response variable `FEV`
+is not normally distributed by carefully inspecting the
+scatterplots shown in @fig-age-height-smoke-vs-fev.
+Looking at `FEV` versus `Age` (left panel) we see
+that as we move from the lower-left corner, where the
+response variable is small, to the upper-right corner,
+the variability in `FEV` values increases.
+A similar phenomenon appears in the right-hand panel in the
+scatterplot of `FEV` versus height (`Ht`).
+@fig-age-height-smoke-vs-fev-arrows
+shows the increase in variability as the mean of 
+`FEV` increases.
+
+If our response variable `FEV` was normally distributed, then
+all the arrows in @fig-age-height-smoke-vs-fev-arrows would
+have the same length regardless of their position along the
+horizontal axis.
+In other words, we would have seen *constant variance* for
+the response variable.
+
+
+```{r}
+#| echo: false
+#| message: false
+#| label: fig-age-height-smoke-vs-fev-arrows
+#| fig-cap: "Age and height versus `FEV`. The data has been rendered in muted gray and pink.  The arrows on both panels depict the variability of `FEV` for small, medium, and large values of `FEV`. The increase in variability is evident."
+
+df <- tibble(x = c(5, 10, 15),
+             y = c(0.8, 1.5, 2.2),
+             xend = x,
+             yend = c(2.1, 4.6, 5.8))
+p <- ggplot(data = lungcap,
+            mapping = aes(x = Age,
+                          y = FEV)) +
+  geom_jitter(data = lungcap[lungcap$Smoke == 0,],
+              width = 0.2, height = 0,
+              pch = 3,
+              color = "gray") +
+  geom_jitter(data = lungcap[lungcap$Smoke == 1,],
+              width = 0.2, height = 0,
+              color = "pink") +
+  geom_segment(data = df,
+               mapping = aes(x = x, y = y, 
+                             xend = xend, yend = yend),
+               color = "red",
+               arrow = arrow(length = unit(2, "mm"),
+                             ends = "both")) +
+  labs(x = "Age [jittered] (in years)",
+       y = "FEV (in liters)")
+
+df <- tibble(x = c(50, 60, 70),
+             y = c(1.1, 1.6, 2.5),
+             xend = x,
+             yend = c(2.1, 3.2, 5.8))
+q <- ggplot(data = lungcap,
+            mapping = aes(x = Ht,
+                          y = FEV)) +
+  geom_point(data = lungcap[lungcap$Smoke == 0,],
+             pch = 3,
+             color = "gray") +
+  geom_point(data = lungcap[lungcap$Smoke == 1,],
+             color = "pink") +
+  geom_segment(data = df,
+               mapping = aes(x = x, y = y,
+                             xend = xend, yend = yend),
+               color = "red",
+               arrow = arrow(length = unit(2, "mm"),
+                             ends = "both")) +
+  labs(x = "Height (in inches)",
+       y = "FEV (in liters)")
+p + q
+rm(df, p, q)
+```
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Looking at
+@fig-age-height-smoke-vs-fev,
+we can see that the left-hand panel shows a cloud of
+points centered around the blue trend line that are
+not as compactly arranged as the points shown in the
+right-hand panel.
+
+The left panel shows `FEV` vs. `Age` and the 
+right panel is `FEV` vs. `Ht`.
+
+Why do you think we see this phenomenon?
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+The response variable is `FEV`, and
+so it measures size of the lungs.
+The relationship between the size of the lungs and
+height is much better defined than the size of lungs
+and age.
+
+We all know children of the same age but who have very different
+heights.  Some are shorter, and others are taller.
+The taller ones have more space for larger lungs.
+
+We also know that most children of the same height
+have similar builds and thus the variability in their
+lung size is smaller.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Looking at
+@fig-age-height-smoke-vs-fev,
+we can see that the left-hand panel shows a cloud of
+points centered around the blue trend line that are
+not as compactly arranged as the points shown in the
+right-hand panel.
+
+The left panel shows `FEV` vs. `Age` and the 
+right panel is `FEV` vs. `Ht`.
+
+Why do you think we see this phenomenon?
+
+:::
+
+::: {.pmmsol}
+
+The response variable is `FEV`, and
+so it measures size of the lungs.
+The relationship between the size of the lungs and
+height is much better defined than the size of lungs
+and age.
+
+We all know children of the same age but who have very different
+heights.  Some are shorter, and others are taller.
+The taller ones have more space for larger lungs.
+
+We also know that most children of the same height
+have similar builds and thus the variability in their
+lung size is smaller.
+
+:::
+
+:::
+
+We have not yet explored how gender and smoking status
+may be related to the response variable.
+We can summarize our data by gender and smoker status
+and compute mean age, height, and `FEV`.
+@tbl-gender-smoker-fev 
+shows the results.
+Note that lung capacity (`FEV`) for both genders is
+higher for smokers than for non-smokers.
+Based on this alone, one might conclude that smoking
+would lead to higher lung capacity.
+But this would be an erroneous conclusion.
+The difference arises because the smoker and nonsmoker 
+subjects have different age and height characteristics.
+We can see that gender does play a role in lung capacity.
+For both gender groups, female participants have a smaller
+height and a smaller lung capacity.
+
+```{r}
+#| echo: false
+#| label: tbl-gender-smoker-fev
+#| tbl-cap: "Mean age, height, and `FEV` by gender and smoker status.  The number of observations (Obs.) in each cell is also given."
+#| tbl-pos: "!b"
+
+tb <- lungcap |>
+  mutate(Gender_Smoke = interaction(Gender, Smoke),
+         Gender_Smoke = case_when(
+           Gender_Smoke == "F.0" ~ "FN",
+           Gender_Smoke == "F.1" ~ "FS",
+           Gender_Smoke == "M.0" ~ "MN",
+           Gender_Smoke == "M.1" ~ "MS")) |>
+  group_by(Gender_Smoke) |>
+  summarise( sz = n(), 
+             mn.Age = mean(Age, na.rm = TRUE), 
+             mn.Ht = mean(Ht, na.rm = TRUE), 
+             mn.FEV = mean(FEV, na.rm = TRUE),
+             .groups = "drop") |>
+  mutate( Gender = str_sub(Gender_Smoke, 1, 1), 
+          SmokeStatus = str_sub(Gender_Smoke, 2, 2)) |> 
+  select(Gender, SmokeStatus, sz, mn.Age, mn.Ht, mn.FEV) |>
+  pivot_wider(names_from = SmokeStatus, 
+              values_from = c(sz, mn.Age, mn.Ht, mn.FEV), 
+              names_glue = "{.value}.{SmokeStatus}") |>
+  relocate(Gender, 
+           sz.N, mn.Age.N, mn.Ht.N, mn.FEV.N,
+           sz.S, mn.Age.S, mn.Ht.S, mn.FEV.S)
+
+kbl(tb,
+    row.names = FALSE,
+    col.names = c("Gender", 
+                  "Obs.", "Age", "Height", "FEV", 
+                  "Obs.", "Age", "Height", "FEV"),
+    digits = c(0, 0, 1, 1, 2, 0, 1, 1, 2),
+    booktabs = TRUE) |>
+  add_header_above(c(" " = 1, " " = 1, "Mean" = 3,
+                     " " = 1, " Mean" = 3)) |>
+  add_header_above(c(" " = 1, "Nonsmoker" = 4, "Smoker" = 4)) |>
+  kable_classic()
+```
+
+```{r}
+#| include: false
+
+rm(tb)
+```
+
+
+From our exploratory analysis we have learned that
+both age and height are strongly related to our 
+response variable `FEV`.
+As `FEV` increases in mean value, its variability also
+increases, and thus using a normal distribution would
+not be supported by the data.  In fact, the data suggests
+that a gamma distribution is appropriate.
+Also, gender and smoker status seem to play a role in 
+influencing the response.
+
+
+
+## Modeling and Diagnostics
+
+From our exploratory data analysis, we propose an
+initial model with the following specification:
+the response variable is `FEV`,
+and we will model it as a gamma distribution.
+The explanatory variable height (`Ht`) should be included
+in the linear predictor,  perhaps entering as a linear term.
+But the right-hand panel of
+@fig-age-height-smoke-vs-fev
+shows that the relationship is not perfectly linear, and 
+thus we may need to use a transformation to obtain a better
+model.
+Gender and smoker status should also be included in the model,
+but we will build the model in stages, adding one variable at a
+time.
+
+Before embarking on our gamma model we will illustrate
+how using OLS regression (that is,
+assuming that our response variable is normally distributed)
+would not be optimal.
+
+Let us fit an OLS regression
+model to `FEV` and `Ht` and display a plot of
+residuals versus fitted values.
+
+```{r}
+#| echo: true
+
+ols.fit <- glm(FEV ~ Ht,
+               data = lungcap,
+               family = gaussian(link = "identity"))
+lungcap <- lungcap |>
+  mutate(olsfit.mu = predict(ols.fit, type = "response"),
+         olsfit.rD = resid(ols.fit, type = "deviance"))
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| label: fig-gaussian-fev-ht-residuals-and-abs
+#| fig-cap: "Fitted values versus deviance residuals for an OLS model for `FEV` that includes height as an explanatory variable. Note the strong pattern in both panels telling us that our model is not adequate."
+
+p <- ggplot(data = lungcap,
+            mapping = aes(x = olsfit.mu,
+                          y = olsfit.rD)) +
+  geom_point(alpha = 0.2) +
+  labs(x = "Fitted Values, FEV (in liters)",
+       y = "Residuals")
+q <- ggplot(data = lungcap,
+            mapping = aes(x = olsfit.mu,
+                          y = abs(olsfit.rD))) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Fitted Values, FEV (in liters)",
+       y = "abs(Residuals)")
+p + q
+rm(p, q)
+```
+
+Notice how, in the left panel of 
+@fig-gaussian-fev-ht-residuals-and-abs,
+as the fitted values increase the vertical 
+spread of the residuals also increases.
+This indicates that the constant variance assumption
+of the residuals is not met.
+The right-hand panel is a modification of the left-hand panel
+where we plot the absolute value of the residuals
+and include a smoothing trend line.
+This small alteration gives us a more nuanced view into
+the changes of spread as fitted values increase.
+For this plot, we see that the spread of residuals first
+decreases and then increases substantially.
+
+
+
+Having seen that the normal distribution does not capture
+the true nature of our data, let us use what we learned 
+during our exploratory data analysis and switch over to
+using a gamma distribution.
+We will fit several models and encode the key characteristics
+in the name. For example, a gamma model with an identity
+link function and having as main effects height and gender
+would be written as `gi.HG.fit`.
+
+The general scheme is as follows:
+
+- The first letter identifies the distribution:
+  (n: normal,
+   p: Poisson,
+   g: gamma,
+   i: inverse Gaussian,
+   b: binomial,
+   v: negative binomial,
+   t: Tweedie).
+- The second letter stands for the link function:
+  (i: identity $g(x) = x$, 
+   l: logarithmic $g(x) = \log(x)$, 
+   r: reciprocal or inverse $g(x) = 1/x$, 
+   s: square root $g(x) = \sqrt{x}$,
+   o: logit $g(x) = \log(x/(1-x))$).^[Other link functions are possible, such as probit, complementary log-log, and inverse squared.]
+- The next group of letters indicates which variables are
+  in the linear predictor:
+  (A: age, 
+   H: height,
+   G: gender,
+   S: smoking).
+
+For a numeric variable we may add a number, like `2`,
+to show that we have a polynomial of second degree in
+that variable as part of the linear predictor.
+And, finally, we add the word `fit` to signal that we have
+a fitted GLM.
+
+To illustrate, the OLS model that we
+fitted above, `ols.fit`, would be named `ni.H.fit` using
+the proposed scheme (normal distribution, identity link,
+and main effect height).
+
+Next, we will fit a gamma GLM to `FEV` 
+using height as an explanatory variable and keeping the
+link function as the identity.
+The model name is `gi.H.fit`.
+Before performing this fit, we should develop an
+idea of what the sign and size of the estimated
+coefficient should be.
+
+Based on
+@fig-age-height-smoke-vs-fev,
+we expect the coefficient for height, `Ht`, to be positive
+and roughly equal to $4/30 \approx 0.13$ (the line connecting
+the points $(45,1)$ and $(75,5)$ seems a reasonable
+approximation).
+
+```{r}
+#| echo: true
+
+gi.H.fit <- glm(FEV ~ Ht,
+                data = lungcap,
+                family = Gamma(link = "identity"))
+(sgi.H.fit <- summary(gi.H.fit))
+```
+
+The coefficient for `Ht` is roughly in line with our
+expectations, and note that the standard errors for both
+estimates are quite small compared to the size of the
+estimate.
+
+Is our model a reasonable representation of the data?
+One way to try to answer this question is to use a technique
+known as *predictive simulation*
+[@gelmanDataAnalysisUsing2007].
+The basic idea is to fit a model to the data,
+then replicate the data from that fitted model, and
+finally compare the actual data with the replicates.
+If we can distinguish the actual data from the
+replicates, then our fitted model is not a very good
+representation of the actual data.
+And, if the actual data and the replicates are
+indistinguishable, then we have a good model.
+
+Using our gamma, identity link, with variable height
+as a main effect---that is, model `gi.H.fit`---we can
+simulate new datasets and compare them against our actual
+data.  Using the heights in our dataset, the following
+code simulates three sets of the response variable, 
+`FEV`, from the appropriate gamma distribution.
+
+```{r}
+#| include: true
+
+set.seed(19390349)
+n <- nrow(lungcap)
+disp <- sgi.H.fit$dispersion
+lungcap <- lungcap |>
+  mutate(giHfit.mu = predict(gi.H.fit, type = "response"),
+         giHfit.rp1 = rgamma(n,
+                             shape = 1/disp,
+                             scale = giHfit.mu * disp),
+         giHfit.rp2 = rgamma(n,
+                             shape = 1/disp,
+                             scale = giHfit.mu * disp),
+         giHfit.rp3 = rgamma(n,
+                             shape = 1/disp,
+                             scale = giHfit.mu * disp))
+```
+
+```{r}
+#| include: false
+
+rm(n,disp)
+```
+
+In
+@fig-fake-data-gamma-identity-fev-ht
+we have four panels showing `FEV` versus height.
+Three of the panels have the simulated data from
+our model, and one panel has the actual data.
+Can you tell which panel has the actual data?
+
+When comparing simulated data against actual data
+we should leverage everything we learned during
+our exploratory data analysis.
+We saw the following two key characteristics in the previous section:
+
+1. the variability in `FEV` increases as height increases, and
+1. the relationship between `FEV` and height is convex.
+
+Which panel in
+@fig-fake-data-gamma-identity-fev-ht
+corresponds to the actual data?
+
+```{r}
+#| echo: false
+#| message: false
+#| label: fig-fake-data-gamma-identity-fev-ht
+#| fig-cap: "One panel contains the actual data, and the other panels have simulated data from a fitted model.  Can you identify the panel with the actual data?"
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+p <- ggplot(data = lungcap,
+            mapping = aes(x = Ht)) + ylim(0,6) +
+  labs(x = "Height (in inches)",
+       y = "FEV (in liters)")
+p1 <- p + geom_point(mapping = aes(y = giHfit.rp3),
+                     alpha = 0.2) + labs(subtitle = "(a)")
+p2 <- p + geom_point(mapping = aes(y = FEV),
+                     alpha = 0.2) + labs(subtitle = "(b)")
+p3 <- p + geom_point(mapping = aes(y = giHfit.rp1),
+                     alpha = 0.2) + labs(subtitle = "(c)")
+p4 <- p + geom_point(mapping = aes(y = giHfit.rp2),
+                     alpha = 0.2) + labs(subtitle = "(d)")
+(p1 + p2) / (p3 + p4)
+rm(list = ls(pattern = "^p"))
+```
+
+In all four panels, we see that the variability in
+the response variable `FEV` increases as height
+increases.
+Thus, characteristic 1 above holds for all four panels.
+Can you see which panel violates characteristic 2?
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Recreate the four graphs but include a smoothing
+trend line for each graph to help you see the
+underlying relationship between `FEV` and `Ht`.
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+Adding a smooth trend line to a scatterplot
+can be done with a locally weighted regression
+procedure such as loess or lowess
+[@clevelandRobustLocallyWeighted1979].
+These methods are implemented in the `geom_smooth()`,
+which we add to each of the plots.
+
+```{r}
+#| echo: false
+#| message: false
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+p <- ggplot(data = lungcap,
+            mapping = aes(x = Ht)) + 
+  ylim(0,6) +
+  labs(x = "Height (in inches)",
+       y = "FEV (in liters)")
+p1 <- p + geom_point(mapping = aes(y = giHfit.rp3),
+                     alpha = 0.2) + 
+  geom_smooth(aes(y = giHfit.rp3),
+              se = FALSE) + 
+  labs(subtitle = "(a)")
+p2 <- p + geom_point(mapping = aes(y = FEV),
+                     alpha = 0.2) + 
+  geom_smooth(aes(y = FEV),
+              se = FALSE) + 
+  labs(subtitle = "(b)")
+p3 <- p + geom_point(mapping = aes(y = giHfit.rp1),
+                     alpha = 0.2) + 
+  geom_smooth(aes(y = giHfit.rp1),
+              se = FALSE) + 
+  labs(subtitle = "(c)")
+p4 <- p + geom_point(mapping = aes(y = giHfit.rp2),
+                     alpha = 0.2) + 
+  geom_smooth(aes(y = giHfit.rp2),
+              se = FALSE) + 
+  labs(subtitle = "(d)")
+
+(p1 + p2) / (p3 + p4)
+```
+
+```{r}
+#| include: false
+
+rm(list = ls(pattern = "^p"))
+```
+
+Note that the panel on the upper right is the only panel
+where the trend line is convex.
+All other trend lines are essentially straight
+lines.
+
+Therefore, model `gi.H.fit` does not capture the
+convexity between the response variable `FEV` and
+the predictor variable height `Ht`.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Recreate the four graphs but include a smoothing
+trend line for each graph to help you see the
+underlying relationship between `FEV` and `Ht`.
+
+:::
+
+::: {.pmmsol}
+
+Adding a smooth trend line to a scatterplot
+can be done with a locally weighted regression
+procedure such as loess or lowess
+[@clevelandRobustLocallyWeighted1979].
+These methods are implemented in the `geom_smooth()`,
+which we add to each of the plots.
+
+```{r}
+#| echo: false
+#| message: false
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+p <- ggplot(data = lungcap,
+            mapping = aes(x = Ht)) + 
+  ylim(0,6) +
+  labs(x = "Height (in inches)",
+       y = "FEV (in liters)")
+p1 <- p + geom_point(mapping = aes(y = giHfit.rp3),
+                     alpha = 0.2) + 
+  geom_smooth(aes(y = giHfit.rp3),
+              se = FALSE) + 
+  labs(subtitle = "(a)")
+p2 <- p + geom_point(mapping = aes(y = FEV),
+                     alpha = 0.2) + 
+  geom_smooth(aes(y = FEV),
+              se = FALSE) + 
+  labs(subtitle = "(b)")
+p3 <- p + geom_point(mapping = aes(y = giHfit.rp1),
+                     alpha = 0.2) + 
+  geom_smooth(aes(y = giHfit.rp1),
+              se = FALSE) + 
+  labs(subtitle = "(c)")
+p4 <- p + geom_point(mapping = aes(y = giHfit.rp2),
+                     alpha = 0.2) + 
+  geom_smooth(aes(y = giHfit.rp2),
+              se = FALSE) + 
+  labs(subtitle = "(d)")
+
+(p1 + p2) / (p3 + p4)
+
+```
+
+```{r}
+#| include: false
+
+rm(list = ls(pattern = "^p"))
+```
+
+Note that the panel on the upper right is the only panel
+where the trend line is convex.
+All other trend lines are essentially straight
+lines.
+
+Therefore, model `gi.H.fit` does not capture the
+convexity between the response variable `FEV` and
+the predictor variable height `Ht`.
+
+:::
+
+:::
+
+
+The curvature that we observe between `FEV` and `Ht` could
+be modeled via a quadratic polynomial in `Ht` or by using 
+a log-link function.
+Let us fit both models and apply some diagnostics.
+The quadratic model in height will be named `gi.H2.fit`
+(gamma distribution, identity link function, height and
+height squared as predictors),
+and the log-link model with height is `gl.H.fit`
+(gamma distribution, log-link function, and height as
+main effect).
+
+```{r}
+#| echo: true
+
+lungcap$Ht.sq <- lungcap$Ht^2
+gi.H2.fit <- glm(FEV ~ Ht + Ht.sq,
+                 data = lungcap,
+                 family = Gamma(link = "identity"))
+gl.H.fit <- glm(FEV ~ Ht,
+                data = lungcap,
+                family = Gamma(link = "log"))
+```
+
+The coefficients for the quadratic model (`gi.H2.fit`) are
+
+```{r}
+#| echo: true
+
+round(coef(gi.H2.fit), 5)
+```
+
+and so we can calculate that the minimum value for
+the curve of predictions from this model 
+occurs at a subject's height equal to 
+$$
+  \frac{0.22664}{2 \cdot 0.00296} \approx 38.28
+$$
+inches.
+This value is outside the range of our data, but is 
+reasonably close and very plausible by continuing the
+smooth trend shown in the right-hand panel of 
+@fig-age-height-smoke-vs-fev.
+
+The coefficients for the log-link model `gl.H.fit` are
+
+```{r}
+#| echo: true
+
+round(coef(gl.H.fit), 5)
+```
+Thus we can infer that as the height for a child
+increases by 1 inch, the child's FEV 
+will increase by approximately 5.4% $(e^{0.0522} - 1)$.
+
+```{r}
+#| echo: false
+
+lungcap <- lungcap |>
+  mutate(giH2fit.mu = predict(gi.H2.fit, type = "response"),
+         giH2fit.eta = predict(gi.H2.fit, type = "link"),
+         giH2fit.rW = resid(gi.H2.fit, type = "working"),
+         giH2fit.wR = giH2fit.eta + giH2fit.rW,
+         giH2fit.rD = resid(gi.H2.fit, type = "deviance"),
+         giH2fit.rQ = qresid(gi.H2.fit))
+```
+
+```{r}
+#| echo: false
+
+lungcap <- lungcap |>
+  mutate(glHfit.mu = predict(gl.H.fit, type = "response"),
+         glHfit.eta = predict(gl.H.fit, type = "link"),
+         glHfit.rW = resid(gl.H.fit, type = "working"),
+         glHfit.wR = glHfit.eta + glHfit.rW,
+         glHfit.rD = resid(gl.H.fit, type = "deviance"),
+         glHfit.rQ = qresid(gl.H.fit))
+```
+
+The left-hand panels of 
+@fig-quadratic-log-link-gamma-fev-height-diagnostics
+show the fitted values versus quantile residuals and the
+linear predictor versus working residuals for the quadratic
+model in height `Ht`.
+The right-hand panels show the same plots for the log-link
+model.
+
+Quantile residuals were introduced in
+@dunnRandomizedQuantileResiduals1996
+and an excellent overview of them appears in
+@dunnGeneralizedLinearModels2018.
+Pearson and deviance residuals are the standard
+choices when analyzing the adequacy of fits for
+GLMs.
+Both are approximately normal with
+deviance residuals being a bit more so, but for
+discrete distributions the approximation to
+normality can be particularly bad.
+Quantile residuals overcome these issues and
+are strongly recommended for discrete models,
+and we can use them just as we would use 
+deviance or Pearson residuals for diagnostic
+purposes.
+
+The top panels of
+@fig-quadratic-log-link-gamma-fev-height-diagnostics
+display fitted values versus quantile residuals,
+and we can see, in both plots a nice random cloud of points 
+centered about the line $y = 0$.
+There appear to be two outlying points in both plots below the
+line $y = -4$.
+The bottom panels are an *informal* diagnostic on the link
+function.
+The plot shows the linear predictor $\hat{\eta_i}$ on 
+the $y$-axis and the working response
+$$
+  z_i = \hat{\eta_i} + \hat{e}_i
+$$
+on the $x$-axis
+[@dunnGeneralizedLinearModels2018, p. 308].
+Note that the working response $z_i$ is the sum of the 
+linear predictor and the *working residuals*, $\hat{e}_i$.
+The working residuals are the residuals from the last
+iteration of the Fisher scoring algorithm used to 
+compute estimates for the coefficients of the model.
+
+If the link function is correct and we have the appropriate
+explanatory variables in our model and on the right scale,
+then we expect the points to cluster around the line $y = x$.
+Major deviations from this null pattern are a red flag that
+something is wrong with our model.
+In our example, both panels show the appropriate behavior,
+but the log-link model has a more cohesive cloud of points
+around the reference line compared to the identity-link
+quadratic polynomial in height, which shows a pattern deviating
+from the line $y = x$ in the upper-right hand corner.
+
+```{r}
+#| echo: false
+#| label: fig-quadratic-log-link-gamma-fev-height-diagnostics
+#| fig-cap: "Fitted values versus quantile residuals and working response versus linear predictor for the quadratic as well as the log-link model. All four plots display the desired null pattern, and in the top panels we may have two outlying observations (residuals below the horizontal line at $y = -4$)."
+#| fig-width: 5.5
+#| fig-height: 4.5
+
+p1 <- ggplot(data = lungcap,
+             mapping = aes(x = giH2fit.mu,
+                           y = giH2fit.rQ)) +
+  geom_point(alpha = 0.2) +
+  labs(x = "Fitted Values, FEV (in liters)",
+       y = "Quantile Residuals",
+       title = "Quadratic Model")
+
+p2 <- ggplot(data = lungcap,
+             mapping = aes(x = glHfit.mu,
+                           y = glHfit.rQ)) +
+  geom_point(alpha = 0.2) +
+  labs(x = "Fitted Values, FEV (in liters)",
+       y = "Quantile Residuals",
+       title = "Log-Link Model")
+
+p3 <- ggplot(data = lungcap,
+             mapping = aes(x = giH2fit.wR,
+                           y = giH2fit.eta)) +
+  geom_point(alpha = 0.2) + geom_abline(intercept = 0,
+                             slope = 1,
+                             color = "red") +
+  labs(x = "Working Response",
+       y = "Linear Predictor",
+       title = "Quadratic Model")
+
+p4 <- ggplot(data = lungcap,
+             mapping = aes(x = glHfit.wR,
+                           y = glHfit.eta)) +
+  geom_point(alpha = 0.2) + geom_abline(intercept = 0,
+                             slope = 1,
+                             color = "red") +
+  labs(x = "Working Response",
+       y = "Linear Predictor",
+       title = "Log-Link Model")
+
+(p1 + p2)/(p3 + p4)
+rm(list = ls(pattern = "p[1-4]"))
+```
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+Plot the quantile residuals versus height for both models.
+Are there any concerning patterns in the plots?
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+The following figure shows the quantile residuals for both
+models:
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+p1 <- ggplot(data = lungcap,
+             mapping = aes(x = Ht,
+                           y = giH2fit.rQ)) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Height (in inches)",
+       y = "Quantile Residuals",
+       title = "Quadratic Model")
+p2 <- ggplot(data = lungcap,
+             mapping = aes(x = Ht,
+                           y = glHfit.rQ)) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Height (in inches)",
+       y = "Quantile Residuals",
+       title = "Log-Link Model")
+
+p1 + p2
+rm(p1, p2)
+```
+
+Both panels show a random cloud of points that are centered 
+about the line $y = 0$.
+Near 60 inches in height we see an upward bump on the
+scatterplot smoother (blue line) indicating that our models
+tend to underpredict in that region.
+But the bump is fairly small.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+Plot the quantile residuals versus height for both models.
+Are there any concerning patterns in the plots?
+
+:::
+
+::: {.pmmsol}
+
+The following figure shows the quantile residuals for both
+models:
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+p1 <- ggplot(data = lungcap,
+             mapping = aes(x = Ht,
+                           y = giH2fit.rQ)) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Height (in inches)",
+       y = "Quantile Residuals",
+       title = "Quadratic Model")
+p2 <- ggplot(data = lungcap,
+             mapping = aes(x = Ht,
+                           y = glHfit.rQ)) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Height (in inches)",
+       y = "Quantile Residuals",
+       title = "Log-link Model")
+
+p1 + p2
+rm(p1, p2)
+```
+
+Both panels show a random cloud of points that are centered 
+about the line $y = 0$.
+Near 60 inches in height we see an upward bump on the
+scatterplot smoother (blue line) indicating that our models
+tend to underpredict in that region.
+But the bump is fairly small.
+
+:::
+
+:::
+
+Currently, our best model uses a gamma distribution and
+a log-link function.
+The quadratic polynomial in height with an identity-link
+function does not show a strong linear relationship between
+the linear predictor and the working residuals (check the upper-right
+hand corner).
+The model equation for the current best model is
+$$
+  \log\left(\mathbb{E}[\text{FEV}] \right) = \beta_0 +
+    \beta_1 \text{Ht}.
+$$
+Next, we incorporate the `Gender` categorical variable
+and the indicator variable for `Smoke`.
+This indicator variable has a value of 1 for subjects
+who smoke and zero otherwise. 
+We would expect the coefficient for `Smoke` to be negative
+because we think that smoking would have a detrimental
+effect on our lungs and thus diminish lung capacity.
+The absolute value of the coefficient will tell us how
+much lung capacity will be affected by smoking.
+As for `Gender`, the size and direction of the effect is 
+not clear.
+
+
+```{r}
+#| echo: true
+
+gl.HGS.fit <- glm(FEV ~ Smoke + Gender + Ht,
+                  data = lungcap,
+                  family = Gamma(link = "log"))
+sgl.HGS.fit <- summary(gl.HGS.fit)
+round(coef(sgl.HGS.fit), 4)
+```
+
+Even though the coefficient for `Smoke` has a positive
+sign, there is no evidence in the data to suggest that
+it is different from zero.  Similarly, the effect for
+`Gender` is not statistically significant.
+
+These results **do not show** that children who smoke do
+not have impaired lung capacity.
+
+```{r}
+#| include: false
+
+lungcap <- lungcap |>
+  mutate(glHGSfit.mu = predict(gl.HGS.fit, type = "response"),
+         glHGSfit.eta = predict(gl.HGS.fit, type = "link"),
+         glHGSfit.rW = resid(gl.HGS.fit, type = "working"),
+         glHGSfit.wR = glHGSfit.eta + glHGSfit.rW,
+         glHGSfit.rD = resid(gl.HGS.fit, type = "deviance"),
+         glHGSfit.rQ = qresid(gl.HGS.fit))
+```
+
+
+
+@fig-lungcap-final-model-diagnostics
+shows some diagnostic plots for our final model `gl.HGS.fit`---gamma
+distribution, log-link, and main effects for height,
+gender, and smoking status.
+All six plots show that our model fits the data well.
+In the bottom-right panel we can see that the bulk
+of the data follows the line $y = x$, but we also see
+a slight deviation from the null pattern in the lower
+tail of the distribution.
+In this case, our quantile residuals have a slightly
+thicker lower tail than a standard normal distribution,
+but the number of points exhibiting this behavior is
+very small.
+
+::: {.content-visible when-format="html"}
+
+::: {.callout-note collapse=true}
+## Exercise
+
+In 
+@fig-lungcap-final-model-diagnostics
+we included diagnostic plots for the variables
+`Smoke` and `Gender`, but we did not include any
+commentary.
+Also the boxplots do not show the mean value.
+
+Recreate these two boxplots, and add a point showing
+the mean value of the residuals for each category
+and comment on what
+information they contribute to the final model.
+
+:::
+
+::: {.callout-note collapse=true}
+## Solution
+
+To add the mean value to the boxplot we use a
+`stat_summary()` function to compute the mean and 
+add a point to the display.
+
+```{r}
+#| echo: false
+
+p1 <- ggplot(data = lungcap,
+             mapping = aes(x = as.factor(Smoke),
+                           y = glHGSfit.rQ)) +
+  geom_boxplot() +
+  stat_summary(fun = mean,
+               geom = "point",
+               color = "red") +
+  labs(x = "Smoke Indicator",
+       y = "Quantile Residuals") +
+  scale_x_discrete(labels = c("No", "Yes"))
+p2 <- ggplot(data = lungcap,
+             mapping = aes(x = as.factor(Gender),
+                           y = glHGSfit.rQ)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", color = "red") +
+  labs(x = "Gender",
+       y = "Quantile Residuals") +
+  scale_x_discrete(labels = c("Female", "Male"))
+p1 + p2
+rm(p1, p2)
+```
+
+For both variables, the means of the residuals are centered
+at zero, they have equal spread, and they haze a few outlying points.
+There are no indications that our model is missing any
+information from these variables.
+
+Two points have quantile residuals whose absolute value
+is greater than 4.
+These points require further investigation.
+Perhaps the value of the response or predictor variables
+was recorded incorrectly.
+
+:::
+
+:::
+
+::: {.content-visible when-format="pdf"}
+
+::: {.pmmexe}
+
+In 
+@fig-lungcap-final-model-diagnostics
+we included diagnostic plots for the variables
+`Smoke` and `Gender`, but we did not include any
+commentary.
+Also the boxplots do not show the mean value.
+
+Recreate these two boxplots, and add a point showing
+the mean value of the residuals for each category
+and comment on what
+information they contribute to the final model.
+
+:::
+
+::: {.pmmsol}
+
+To add the mean value to the boxplot we use a
+`stat_summary()` function to compute the mean and 
+add a point to the display.
+
+```{r}
+#| echo: false
+
+p1 <- ggplot(data = lungcap,
+             mapping = aes(x = as.factor(Smoke),
+                           y = glHGSfit.rQ)) +
+  geom_boxplot() +
+  stat_summary(fun = mean,
+               geom = "point",
+               color = "red") +
+  labs(x = "Smoke Indicator",
+       y = "Quantile Residuals") +
+  scale_x_discrete(labels = c("No", "Yes"))
+p2 <- ggplot(data = lungcap,
+             mapping = aes(x = as.factor(Gender),
+                           y = glHGSfit.rQ)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", color = "red") +
+  labs(x = "Gender",
+       y = "Quantile Residuals") +
+  scale_x_discrete(labels = c("Female", "Male"))
+p1 + p2
+rm(p1, p2)
+```
+
+For both variables, the means of the residuals are centered
+at zero, they have equal spread, and they haze a few outlying points.
+There are no indications that our model is missing any
+information from these variables.
+
+Two points have quantile residuals whose absolute value
+is greater than 4.
+These points require further investigation.
+Perhaps the value of the response or predictor variables
+was recorded incorrectly.
+
+:::
+
+:::
+
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| label: fig-lungcap-final-model-diagnostics
+#| fig-cap: "Diagnostic plots for our final model. The two left-hand panels show a random cloud of points centered about the line $y = 0$.  The trend line exhibits a small positive bump in the center of the display. The upper right-hand panel shows that our model captures the increasing variablity in the response variable well. The QQ-plot on the lower right-hand panel shows that lower tail of our data is thicker than it should be."
+#| fig-width: 6
+#| fig-height: 7
+
+p1 <- ggplot(data = lungcap,
+             mapping = aes(x = glHGSfit.mu,
+                           y = glHGSfit.rQ)) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Fitted Values, FEV (in liters)",
+       y = "Quantile Residuals")
+p2 <- ggplot(data = lungcap,
+             mapping = aes(x = glHGSfit.mu,
+                           y = abs(glHGSfit.rQ))) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Fitted Values, FEV (in liters)",
+       y = "abs(Quantile Residuals)")
+p3 <- ggplot(data = lungcap,
+             mapping = aes(x = Ht,
+                           y = glHGSfit.rQ)) +
+  geom_point(alpha = 0.2) + geom_smooth(se = FALSE) +
+  labs(x = "Height (in inches)",
+       y = "Quantile Residuals")
+p4 <- ggplot(data = lungcap,
+             mapping = aes(sample = glHGSfit.rQ)) +
+  stat_qq() +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  labs(x = "Theoretical Quantiles",
+       y = "Sample Quantiles")
+p5 <- ggplot(data = lungcap,
+             mapping = aes(x = Gender,
+                           y = glHGSfit.rQ)) +
+  geom_boxplot() +
+  labs(x = "Gender",
+       y = "Quantile Residuals") +
+  scale_x_discrete(labels = c("Female", "Male"))
+p6 <- ggplot(data = lungcap,
+             mapping = aes(x = factor(Smoke),
+                           y = glHGSfit.rQ)) +
+  geom_boxplot() +
+  labs(x = "Smoking Status",
+       y = "Quantile Residuals") +
+  scale_x_discrete(labels = c("No", "Yes"))
+(p1 + p2) / (p3 + p5) / (p6 + p4)
+rm(list = ls(pattern = "^p"))
+```
+
+
+
+## Summary
+
+This chapter focused on refreshing some of the
+main concepts for GLMs by
+working through a concrete example.
+GLMs provide a richer set of 
+regression models for the analyst to draw on.
+Many GLMs exhibit a mean--variance relationship
+of the form $\text{Var}[y] = \phi \mu^b$, where 
+$\phi$ is the dispersion parameter, $\mu$ is the 
+mean of the distribution, and the value
+of $b$ determines the distribution.
+Specific values are as follows:
+$b = 0$ normal (that is, we are back to OLS),
+$b = 1, \phi = 1$ Poisson, $1 < b < 2$ Tweedie
+distribution with a probability mass at zero,
+$b = 2$ gamma, and $b = 3$ inverse Gaussian.
+
+In many situation we can use the data to estimate
+the mean--variance relationship and select an appropriate
+distribution.
+We also showed several diagnostic plots, such as the
+standard residuals versus fitted values, absolute value
+of residuals against fitted values, an informal check on
+the link function by plotting the linear predictor against
+the working responses, and a QQ plot of residuals.
+
+
+

@@ -1,0 +1,500 @@
+---
+title: "Practical Mixed Models for Actuaries Ch. 3 - Classical Credibility"
+format: html
+---
+
+## Introduction
+
+In this chapter, we explore classical credibility theory, specifically the Bühlmann and Bühlmann-Straub models. These models provide the actuarial foundation for partial pooling, which we will later generalize using mixed models.
+
+The core idea is to estimate a group's future experience by balancing its own historical data against the collective experience of all groups.
+
+**Credibility**, simply put, is the weighting together of different estimates to come up with a combined estimate.  For instance, an insured's own experience might suggest a different premium from that in the manual.  These are two different estimates of the needed premium, which can be combined using _credibility concepts_ to yield an adjusted premium.
+
+$$
+\hat{\mu}_j = Z_j \bar{y}_j + (1 - Z_j) \hat{\mu}
+$$
+
+where:
+- $\hat{\mu}_j$ is the credibility-weighted estimate for group $j$.
+- $\bar{y}_j$ is the observed mean for group $j$.
+- $\hat{\mu}$ is the collective (population) mean.  This is typically called the _complement of credibility_
+- $Z_j$ is the credibility weight.
+
+The intuitive understanding of $Z_j$ is that the **more extensive** the observed data is and the **less it fluctuates**, then the closer the credibility weight $Z_j$ will be to 1.
+
+## Setup
+
+```{r}
+#| label: setup
+#| message: false
+
+library(tidyverse)
+library(actuar)
+library(gt)
+```
+
+## The Bühlmann Model
+
+The basic Bühlmann model (Greatest Accuracy) is a linear model with a random effect.
+
+### PMMA Example
+
+```{r}
+#| include: false
+
+dta <- tibble(class = factor(rep(1:3, each = 4),
+                             levels = 1:3),
+              time = rep(1:4, times = 3),
+              value = c(625, 675, 600, 700,
+                        750, 800, 650, 800,
+                        900, 700, 850, 950))
+
+dtb <- pivot_wider(dta,
+                   names_from = time,
+                   values_from = value)
+
+dtb |> 
+    gt() |>                                                                       
+    tab_spanner(
+      label = "Time Period",
+      columns = -class
+    ) |>
+    cols_label(
+      class = "Class"
+    ) |>
+    cols_align(align = "center")
+```
+
+$$
+X_{jt} = m_j + \mathbf{\epsilon}_{jt}
+$$
+
+Experience for risk class $j=1,2,\ldots,J$ in time period $t=1,2,\ldots,T$ is $X_{jt}$.  The risk class has a true mean $m_j$ and a random error $\epsilon_{jt}$. Assume iid error terms and $\mathbf{\epsilon}_{jt} \sim N(0, \sigma^2)$.
+
+So $X_{jt} \overset{\text{iid}}{\sim} N(\mu, \sigma^2)$; classes have potentially different means but the same variance.  All of this should look **very** familiar.
+
+**Sum of Squares Between**
+
+$$
+SSB = \sum_{j=1}^J T (\bar{X}_j - \bar{X})^2
+$$
+
+This has $J-1$ degrees of freedom.
+
+**Sum of Squares Within**
+
+$$
+SSW = \sum_{j=1}^J \sum_{t=1}^T (X_{jt} - \bar{X}_j)^2
+$$
+
+This has $J(T-1)$ degrees of freedom.
+
+The null is that the group means $m_j$ are equal.
+
+$$
+F = \frac{\text{MSB}}{\text{MSW}} = \frac{SSB/(J-1)}{SSW/(J(T-1))} \sim F_{J-1, J(T-1)}
+$$
+
+```{r}
+
+J <- length(levels(dta$class))
+Tm <- length(unique(dta$time))
+X.jt <- dta$value
+
+Xj.bar <- tapply(X.jt, dta$class, mean)
+X.bar <- mean(X.jt)
+SSB <- Tm * sum((Xj.bar - X.bar)^2)
+MSB <- SSB / (J - 1)
+
+SSW <- sum((X.jt - rep(Xj.bar, each = Tm))^2)
+MSW <- SSW / (J * (Tm - 1))
+
+round(c("F.value" = MSB / MSW,
+  "z.star" = qf(0.95, J - 1, J * (Tm - 1)),
+  "p-value" = pf(MSB/MSW, J - 1, J * (Tm - 1), lower.tail = FALSE)),
+  5)
+```
+
+So, we have evidence that at least two of the means are different, and thus we would consider the portfolio to be heterogeneous.
+
+We can do the sum of squares between and within more easily.
+
+```{r}
+
+fm <- lm(value ~ class, data = dta)
+print(anova(fm))
+```
+
+Another way to look at our portfolio would be to assume that the risk class mean $m_j$ is a random draw from a distribution.  We could decompose the model as follows:
+
+$$
+  X_{jt} = \mu + \Xi_j + \epsilon_{jt}, \quad
+  j = 1, 2, \dots, J, \quad t = 1, 2, \dots, T
+$$
+
+$$
+\text{Var}\left[\Xi_j\right]=\tau^2, \qquad \text{Var}\left[\epsilon_{jt}\right]=\sigma^2
+$$
+
+Portfolio interpreation is:
+
+- the overall mean of the portfolio is $\mu$, the expected value of claim costs for a contract chosen at random from the portfolio.
+- the random effect $\Xi_j$ is the deviation of the $j$th risk class mean from the overall mean.  A large value of $\tau^2$ indicates that the risk class means are widely dispersed (heterogeneous).
+- the random effect $\epsilon_{jt}$ is the deviation of the $t$th observation in the $j$th risk class from the risk class mean.  It represents the fluctuation of the experience around the risk class mean around its long-term average.
+
+```{r}
+
+J <- length(levels(dta$class))
+Tm <- length(unique(dta$time))
+cls <- dta$class
+o <- order(dta$class, dta$time)
+Xjt <- dta$value[o]
+
+X.bar <- mean(Xjt)
+Xj.bar <- tapply(Xjt, cls, mean)
+
+sigmaj.sq <- tapply(
+  (Xjt - rep(Xj.bar, each = Tm))^2, cls, sum) / (Tm - 1)
+sigma.sq <- mean(sigmaj.sq)
+
+Var.Xj.bar <- sum((Xj.bar - X.bar)^2) / (J - 1)
+
+tau.sq <- Var.Xj.bar - sigma.sq / Tm
+
+Z <- Tm / (Tm + sigma.sq / tau.sq)
+(Z * Xj.bar + (1 - Z) * X.bar)
+```
+
+```{r}
+
+BB <- actuar::cm( ~ class, data = dtb, ratios = 2:5)
+summary(BB)
+```
+
+The B&uuml;hlmann model isn't always applicable in practice.
+
+$$
+X_{jt} = m + \Xi_j + \epsilon_{jt}
+$$
+
+We assume that the deviation $\Xi_j$ from the overall mean $m$ for each risk class $j$ has the same variance, namely, $\text{Var}[\Xi_j] = \tau^2$.  All risk classes have, in essence, been measured with the same precision - this might not be a very good assumption.  In this case, we would want to consider experience $X_{jt}$ along with a weight $w_{jt}$ for each observation, such that the variance of the experience is inversely proportional to the weight.
+
+## The Bühlmann-Straub Model
+
+The Bühlmann-Straub model extends the basic Bühlmann model (Greatest Accuracy) by allowing for different volumes of exposure (weights) for each observation.  We no longer assume that the variance of the experience is constant across risk classes.
+
+$$
+  X_{jt} = \mu + \Xi_j + \epsilon_{jt}, \quad
+  j = 1, 2, \dots, J, \quad t = 1, 2, \dots, T
+$$
+
+$$
+\text{Var}[\Xi_j] = \tau^2
+$$
+
+but now we assume that the variance of the process variance is inversely proportional to the weight of the observation.
+
+$$
+\text{Var}[\epsilon_{jt}] = \frac{\sigma^2}{w_{jt}}
+$$
+
+Again, we want to find the _best unbiased_ linear predictor $\sum g_{jt} X_{jt}$ of the risk premium $m + \Xi_j$.
+
+Common Index Notation in Actuarial Usage - in Schirmacher and Kaas, these are frequently used to denote a sum or average over a specific index (like time $t$):
+
+- Total Weight for group $j$: $w_{j\bullet} = \sum_{t=1}^T w_{jt}$
+- Total Weight for all groups: $w_{\bullet\bullet} = \sum_{j=1}^J w_{j\bullet} = \sum_{j=1}^J \sum_{t=1}^T w_{jt}$
+- Weighted Mean for group $j$: $X_{j\circ} = \frac{1}{w_{j\bullet}} \sum_{t=1}^T w_{jt} X_{jt}$
+- Grand Mean: $X_{\circ\circ} = \sum_{j=1}^J  \frac{w_{j\bullet}}{{w_{\bullet\bullet}}} X_{j\circ}$
+- Credibility Weighted Grand Mean: $X_z=\sum{j=1}^J \frac{Z_j}{Z_{\bullet}} X_{j\circ}$
+- Credibility Factor for each class: $Z_j = \frac{w_{j\bullet} \tau^2}{w_{j\bullet} \tau^2 + \sigma^2} = \frac{w_{j\bullet}}{w_{j\bullet} + \sigma^2 / \tau^2}$
+- $Z_{\bullet} = \sum_{j=1}^J Z_j$
+
+Note that the overall average $X_{\circ\circ}$ is note generally equal to the credibility weighted average $X_z$.
+
+### PMMA Example
+
+```{r}
+#| lst-label: lst-sim-BS-model
+#| lst-cap: "Simulation of the B&uuml;hlmann--Straub model."
+
+J <- 100; Tm <- 5
+j <- as.factor(rep(1:J, each = Tm))
+
+m <- 80
+t2 <- 64
+s2 <- 100
+
+set.seed(12094851)
+w.jt <- 0.5 + runif(J * Tm)
+X.jt <- m + rep(rnorm(J, 0, sqrt(t2)), each = Tm) +
+            rnorm(J * Tm, 0, sqrt(s2/w.jt))
+
+dta <- tibble(risk = j,
+              X.jt = X.jt,
+              W.jt = w.jt)
+```
+
+```{r}
+(av <- anova(lm(X.jt ~ j, weights = w.jt, data = dta)))
+```
+
+```{r}
+(s2.hat <- av[2,3])
+```
+
+```{r}
+(m.hat <- X.cc <- sum(w.jt * X.jt) / sum(w.jt))
+```
+
+$$
+w_{j\bullet} = \sum_{t=1}^T w_{jt} \quad \text{and} \quad w_{\bullet\bullet} = \sum_{j=1}^J w_{j\bullet} = \sum_{j=1}^J \sum_{t=1}^T w_{jt}
+$$
+
+$$
+X_{j\circ} = \sum_{t=1}^T \frac{ w_{jt} }{w_{j\bullet}} X_{jt}
+$$
+
+```{r}
+w.jb <- tapply(w.jt, j, sum)
+w.bb <- sum(w.jb)
+X.jc <- tapply(w.jt * X.jt / w.jb[j], j, sum)
+```
+
+```{r}
+num <- sum(w.jb * (X.jc- X.cc)^2) - (J - 1) * s2.hat
+den <- w.bb - sum(w.jb^2 / w.bb)
+(t2.hat <- num / den)
+```
+
+```{r}
+
+Zj.hat <- w.jb / (w.jb + s2.hat / t2.hat)
+
+(X.z <- sum(Zj.hat * X.jc) / sum(Zj.hat))
+```
+
+```{r}
+
+P.hat <- Zj.hat * X.jc + (1 - Zj.hat) * X.z
+P.hat[1:20]
+```
+
+```{r}
+
+D <- cbind(risk.class = 1:J,
+           as.data.frame(
+            matrix(X.jt, nrow = J, ncol = Tm, byrow = TRUE)
+           ),
+           as.data.frame(
+            matrix(w.jt, nrow = J, ncol = Tm, byrow = TRUE)
+           ))
+
+(BS <- cm(~ risk.class, data = D, ratios = 2:6, weights = 7:11))
+```
+
+```{r}
+
+all(round(abs(predict(BS) - P.hat), 10) == 0)
+```
+
+### Additional Example
+
+We will use a synthetic dataset similar to the examples found in CAS Monograph 14.
+
+```{r}
+#| label: sample-data
+
+# Synthetic dataset: 5 classes, 4 years of data
+set.seed(513)
+cred_data <- expand.grid(
+  Class = factor(1:5),
+  Year = 1:4
+) |> 
+  mutate(
+    Weight = sample(100:1000, n(), replace = TRUE),
+    # True means for each class
+    TrueMean = case_when(
+      Class == 1 ~ 0.05,
+      Class == 2 ~ 0.07,
+      Class == 3 ~ 0.10,
+      Class == 4 ~ 0.12,
+      Class == 5 ~ 0.15
+    ),
+    # Observations with some noise
+    LossRatio = rnorm(n(), mean = TrueMean, sd = 0.05 / sqrt(Weight/500))
+  )
+
+cred_data |> 
+  head(10) |> 
+  gt() |> 
+  fmt_number(columns = c(TrueMean, LossRatio), decimals = 4)
+```
+
+## Manual Calculation of Credibility Parameters
+
+To calculate $Z$, we need the "Expected Value of the Process Variance" (EVPV, $\sigma^2$) and the "Variance of the Hypothetical Means" (VHM, $\tau^2$).
+
+1.  **EVPV ($\sigma^2$):** The average variance within each group.
+2.  **VHM ($\tau^2$):** The variance between the group means.
+
+### Step 1: Group Means and Weights
+
+```{r}
+#| label: group-summaries
+
+group_stats <- cred_data |> 
+  group_by(Class) |> 
+  summarise(
+    n = n(),
+    TotalWeight = sum(Weight),
+    ObservedMean = sum(Weight * LossRatio) / sum(Weight),
+    S_j_sq = sum(Weight * (LossRatio - ObservedMean)^2) / (n - 1)
+  )
+
+group_stats |> gt() |> fmt_number(columns = c(ObservedMean, S_j_sq), decimals = 5)
+```
+
+### Step 2: Estimate EVPV ($\hat{\sigma}^2$)
+
+$$
+\hat{\sigma}^2 = \frac{1}{J} \sum_{j=1}^J S_j^2
+$$
+
+```{r}
+#| label: estimate-evpv
+evpv_hat <- mean(group_stats$S_j_sq)
+evpv_hat
+```
+
+### Step 3: Estimate VHM ($\hat{\tau}^2$)
+
+This involves a more complex calculation to remove the "noise" from the observed variance of means.
+
+```{r}
+#| label: estimate-vhm
+overall_mean <- sum(cred_data$Weight * cred_data$LossRatio) / sum(cred_data$Weight)
+
+# Sum of squares between groups
+ss_between <- sum(group_stats$TotalWeight * (group_stats$ObservedMean - overall_mean)^2)
+
+# Degrees of freedom
+J <- n_distinct(cred_data$Class)
+N <- nrow(cred_data)
+
+# Constant c
+sum_w_j <- sum(group_stats$TotalWeight)
+sum_w_j_sq <- sum(group_stats$TotalWeight^2)
+c_const <- (sum_w_j - sum_w_j_sq / sum_w_j) / (J - 1)
+
+vhm_hat <- max(0, (ss_between - (J - 1) * evpv_hat) / c_const)
+vhm_hat
+```
+
+### Step 4: Credibility Weights ($Z_j$)
+
+$$
+Z_j = \frac{W_j}{W_j + K}, \quad K = \frac{\hat{\sigma}^2}{\hat{\tau}^2}
+$$
+
+```{r}
+#| label: calc-z
+k_const <- evpv_hat / vhm_hat
+
+group_stats <- group_stats |> 
+  mutate(
+    K = k_const,
+    Z = TotalWeight / (TotalWeight + k_const),
+    CredibilityEstimate = Z * ObservedMean + (1 - Z) * overall_mean
+  )
+
+group_stats |> 
+  dplyr::select(Class, TotalWeight, ObservedMean, Z, CredibilityEstimate) |> 
+  gt() |> 
+  fmt_number(columns = c(ObservedMean, Z, CredibilityEstimate), decimals = 4)
+```
+
+## Mathematical Foundations
+
+To pin down the theory, we examine the properties of these estimators as established in modern actuarial literature (e.g., Kaas et al., 2009, **Modern Actuarial Risk Theory**).
+
+### The BLUP Property (Kaas et al., Theorem 8.2.2)
+
+The Bühlmann credibility premium is often called the **Best Linear Unbiased Predictor (BLUP)**. For the balanced case (homogeneous exposures), the theorem states that among all linear predictors of the form:
+
+$$
+L = a_0 + \sum_{t=1}^T a_t X_t
+$$
+
+the credibility estimator $\hat{\mu} = Z \bar{X} + (1 - Z) \mu$ minimizes the Mean Squared Error (MSE):
+
+$$
+\text{MSE}(L) = E\left[(\mu(\theta) - L)^2\right]
+$$
+
+subject to the unbiasedness constraint $E[L] = E[\mu(\theta)]$.
+
+**Proof Sketch:**
+1.  **Linearity:** By definition, $\hat{\mu}$ is a linear combination of observations and a constant.
+2.  **Unbiasedness:** Since $E[\bar{X}] = E[E[\bar{X}|\theta]] = E[\mu(\theta)]$, it follows that $E[Z \bar{X} + (1-Z)\mu] = \mu$.
+3.  **Minimization:** Using the orthogonality principle or standard calculus, the coefficients $a_t$ that minimize the MSE are found by solving the normal equations. This leads to the identical weights $a_t = Z/T$ and the specific form of $Z = \frac{T}{T + \sigma^2/\tau^2}$.
+
+### Nonparametric Estimators (Empirical Bayes)
+
+In the calculations above, we used nonparametric estimators for the variance components. These do not assume a specific distribution (like Poisson or Gamma) for the claims.
+
+-   **Overall Mean ($\hat{\mu}$):** The weighted average of all observations.
+-   **EVPV ($\hat{\sigma}^2$):** Calculated from the average within-group sample variance ($S_j^2$). It is an unbiased estimator of $E[\text{Var}(X|\theta)]$.
+-   **VHM ($\hat{\tau}^2$):** Calculated via the "Method of Moments" (ANOVA-style). It estimates $\text{Var}(E[X|\theta])$. We use the `max(0, ...)` correction because the moment-based subtraction can theoretically yield a negative value due to sampling noise.
+
+### Developing Parametric Estimators
+
+While nonparametric methods are robust, **Parametric Estimators** (Likelihood-based) allow us to use the full power of GLMMs. To develop them:
+
+1.  **Conditional Likelihood:** Assume a distribution for the observations given the random effect, e.g., $X_{it} | \theta_i \sim \text{Poisson}(w_{it} \theta_i)$.
+2.  **Prior (Structural) Distribution:** Assume a distribution for the random effects, e.g., $\theta_i \sim \text{Gamma}(\alpha, \beta)$.
+3.  **Marginal Likelihood:** Integrate out the random effects:
+    $$L(\alpha, \beta) = \prod_{i=1}^J \int \left[ \prod_{t=1}^T f(x_{it} | \theta_i) \right] \pi(\theta_i | \alpha, \beta) d\theta_i$$
+4.  **Optimization:** Use Maximum Likelihood (ML) or Restricted Maximum Likelihood (REML) to find $\hat{\alpha}$ and $\hat{\beta}$.
+5.  **Prediction:** The credibility estimate is the mean of the posterior distribution $P(\theta_i | \text{Data}_i)$.
+
+**Connection:** For the Gaussian-Gaussian case, the parametric posterior mean **is exactly** the Bühlmann credibility formula. For non-Gaussian cases (like Poisson-Gamma), it yields a similar "partial pooling" result, which we will explore in the next chapters using `glmmTMB`.
+
+## Computational Approach with `actuar`
+
+The `actuar` package provides the `cm` function to perform these calculations efficiently.
+
+```{r}
+#| label: actuar-cm
+
+# cm() expects a specific format or a hierarchical formula
+# For Buhlmann-Straub:
+fit_cm <- cm(~ Class, 
+             data = cred_data, 
+             rweights = Weight, 
+             measure = LossRatio)
+
+summary(fit_cm)
+```
+
+We can compare the manual results with the `actuar` results.
+
+```{r}
+#| label: compare-results
+
+actuar_results <- predict(fit_cm)
+manual_results <- group_stats$CredibilityEstimate
+
+comparison <- data.frame(
+  Class = group_stats$Class,
+  Manual = manual_results,
+  Actuar = as.numeric(actuar_results)
+)
+
+comparison |> gt() |> fmt_number(columns = 2:3, decimals = 6)
+```
+
+## Conclusion
+
+Classical credibility provides a principled way to perform partial pooling. However, it is limited in its ability to handle multiple covariates and complex data structures. In the next chapter, we will see how Linear Mixed Models (LMMs) provide a more flexible framework that reproduces these results as a special case.
